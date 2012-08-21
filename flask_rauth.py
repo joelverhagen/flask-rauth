@@ -11,11 +11,90 @@
 import httplib2
 from functools import wraps
 from urlparse import urljoin
-from flask import request, session, json, redirect
+from flask import request, session, json, redirect, url_for
 from werkzeug import url_decode, url_encode, url_quote, \
      parse_options_header, Headers
+from werkzeug.routing import BuildError
 import oauth2
+from rauth.service import OAuth2Service, OAuth1Service, OflyService
 
+def get_redirect_uri(val):
+    # don't even waste our time with falsy values
+    if not val:
+        return
+
+    try:
+        # maybe they passed url_for kwargs...
+        return url_for(**val)
+    except TypeError:
+        try:
+            # or maybe the passed a url_for endpoint
+            return url_for(val, _external=True)
+        except BuildError:
+            # or maybe they just passed an absolute URL
+            return val
+
+class RauthOAuth2(OAuth2Service):
+    def __init__(self, app=None, base_url=None, authorize_params={}, **kwargs):
+        self.authorize_params = authorize_params
+        self.base_url = base_url
+        self.get_token = None
+
+        super(RauthOAuth2, self).__init__(**kwargs)
+
+    # alias of get_authorize_url to help people who have used Flask-OAuth 
+    def authorize(self, **kwargs):
+        return self.get_authorize_url(**kwargs)
+
+    def get_authorize_url(self, **override):
+        # apply defaults set from the constructor
+        authorize_params = self.authorize_params.copy()
+        authorize_params.update(override)
+
+        # try convert the provided redirect_uri to an absolute URL string
+        if 'redirect_uri' in authorize_params:
+            authorize_params['redirect_uri'] = get_redirect_uri(authorize_params['redirect_uri'])
+
+        return super(RauthOAuth2, self).get_authorize_url(**authorize_params)
+
+    def authorized_handler(self, f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            error = resp = None
+            if 'error' in request.args:
+                error = request.args['error']
+            elif 'code' not in request.args:
+                # if this happens, there's probably a problem with the provider
+                raise OAuthException('No error or code provided in authorization grant')
+            else:
+                resp = self.get_access_token(data={
+                    'code': request.args['code'],
+                    'redirect_uri': get_redirect_uri(self.authorize_params.get('redirect_uri')) or request.base_url
+                })
+            return f(*((error, resp) + args), **kwargs)
+        return decorated
+
+    def tokengetter(self, f):
+        self.get_token = f
+        return f
+
+    def request(self, method, url, access_token=None, **kwargs):
+        # resolve the base_url
+        if self.base_url is not None:
+            url = urljoin(self.base_url, url)
+
+        if access_token is None and self.get_token is not None:
+            access_token = self.get_token()
+
+        # add in the access_token
+        if 'params' not in kwargs:
+            kwargs['params'] = {'access_token': access_token}
+        else:
+            # TODO: handle if the user sends bytes -> properly append 'access_token'
+            kwargs['params']['access_token'] = access_token
+
+        # call the parent implementation
+        return super(RauthOAuth2, self).request(method, url, **kwargs)
 
 _etree = None
 def get_etree():
