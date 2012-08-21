@@ -19,21 +19,26 @@ import oauth2
 import json
 from rauth.service import OAuth2Service, OAuth1Service, OflyService, Response
 
-def infer_redirect_uri(val):
-    # don't even waste our time with falsy values
-    if not val:
-        return
+# specified by the OAuth 2.0 spec
+# http://tools.ietf.org/html/draft-ietf-oauth-v2-31#section-4.1.4
+ACCESS_DENIED = 'access_denied'
 
-    try:
-        # maybe they passed url_for kwargs...
-        return url_for(**val)
-    except TypeError:
-        try:
-            # or maybe the passed a url_for endpoint
-            return url_for(val, _external=True)
-        except BuildError:
-            # or maybe they just passed an absolute URL
-            return val
+class FlaskRauthException(RuntimeError):
+    """Raised if authorization fails for some reason."""
+    message = None
+
+    def __init__(self, message, data=None):
+        #: A helpful error message for debugging
+        self.message = message
+        #: If available, the parsed data from the remote API that can be
+        #: used to pointpoint the error.
+        self.data = data
+
+    def __str__(self):
+        return self.message.encode('utf-8')
+
+    def __unicode__(self):
+        return self.message
 
 class RauthServiceMixin(object):
     def __init__(self, app, base_url):
@@ -117,19 +122,22 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
     def authorized_handler(self, f):
         @wraps(f)
         def decorated(*args, **kwargs):
-            error = resp = None
+            resp = None
             if 'error' in request.args:
-                error = request.args['error']
-            elif 'code' not in request.args:
+                if  request.args['error'] == ACCESS_DENIED:
+                    resp = ACCESS_DENIED
+                else:
+                    raise FlaskRauthException('An unexpected error occurred during authorization: error: "%s", error_description: "%s", error_uri: "%s"' % (request.args.get('error'), request.args.get('error_description'), request.args.get('error_uri')))
+            elif 'error' not in request.args and 'code' not in request.args:
                 # if this happens, there's probably a problem with the provider
-                raise OAuthException('No error or code provided in authorization grant')
+                raise FlaskRauthException('No error or code provided in the authorization grant')
             else:
                 resp = self.get_access_token(data={
                     'code': request.args['code'],
                     'redirect_uri': session.pop(self._session_key('redirect_uri'), None)
                 })
 
-            return f(*((error, resp) + args), **kwargs)
+            return f(*((resp,) + args), **kwargs)
         return decorated
 
     def request(self, method, url, access_token=None, **kwargs):
@@ -170,16 +178,13 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
     def authorized_handler(self, f):
         @wraps(f)
         def decorated(*args, **kwargs):
-            error = False
             resp = None
-            if 'oauth_verifier' not in request.args:
-                error = True
-            else:
+            if 'oauth_verifier' in request.args:
                 resp = self.get_access_token(data={
                     'oauth_verifier': request.args['oauth_verifier']
                 }, **session.pop(self._session_key('request_token'), {}))
 
-            return f(*((error, resp) + args), **kwargs)
+            return f(*((resp,) + args), **kwargs)
         return decorated
 
     def request(self, method, url, oauth_token=None, **kwargs):
@@ -206,12 +211,11 @@ class RauthOfly(OflyService, RauthServiceMixin):
     def authorized_handler(self, f):
         @wraps(f)
         def decorated(*args, **kwargs):
-            error = False
             resp = None
             if 'oflyUserid' not in request.args:
-                raise OAuthException('No oflyUserid provided in authorization grant')
+                raise FlaskRauthException('No oflyUserid provided in the authorization grant')
             elif request.args['oflyUserid'] == 'no-grant':
-                error = True
+                resp = ACCESS_DENIED
             else:
                 resp = {
                     'oflyUserid': request.args.get('oflyUserid'),
@@ -219,7 +223,7 @@ class RauthOfly(OflyService, RauthServiceMixin):
                     'oflyUserEmail': request.args.get('oflyUserEmail')
                 }
 
-            return f(*((error, resp) + args), **kwargs)
+            return f(*((resp,) + args), **kwargs)
         return decorated
 
     def request(self, method, url, oflyUserid=None, **kwargs):
