@@ -1,8 +1,8 @@
 """
-Flask-OAuth
+Flask-Rauth
 -----------
 
-Adds OAuth support to Flask.
+Adds OAuth 1.0/a, 2.0, and Ofly support to Flask.
 
 Links
 `````
@@ -15,20 +15,20 @@ from setuptools import setup
 
 
 setup(
-    name='Flask-OAuth',
-    version='0.12',
-    url='http://github.com/mitsuhiko/flask-oauth',
+    name='Flask-Rauth',
+    version='0.1',
+    url='https://bitbucket.org/knapcode/flask-rauth',
     license='BSD',
     author='Armin Ronacher',
     author_email='armin.ronacher@active-4.com',
-    description='Adds OAuth support to Flask',
+    description='Adds OAuth 1.0/a, 2.0, and Ofly support support to Flask',
     long_description=__doc__,
-    py_modules=['flask_oauth'],
+    py_modules=['flask_rauth'],
     zip_safe=False,
     platforms='any',
     install_requires=[
         'Flask',
-        'oauth2'
+        'rauth'
     ],
     classifiers=[
         'Development Status :: 4 - Beta',
