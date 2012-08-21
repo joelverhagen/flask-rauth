@@ -48,10 +48,6 @@ class RauthServiceMixin(object):
         app.config.setdefault(self._consumer_key_config())
         app.config.setdefault(self._consumer_secret_config())
 
-    # alias of get_authorize_url to help people who have used Flask-OAuth 
-    def authorize(self, **kwargs):
-        return self.get_authorize_url(**kwargs)
-
     def tokengetter(self, f):
         self.tokengetter_f = f
         return f
@@ -108,14 +104,16 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
         OAuth2Service.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
         RauthServiceMixin.__init__(self, app=app, base_url=base_url)
 
-    def get_authorize_url(self, **authorize_params):
+    def authorize(self, **authorize_params):
         # OAuth 2.0 requires a redirect_uri value
         assert 'redirect_uri' in authorize_params, 'The "redirect_uri" must be provided when generating the authorize URL'
 
         # save the redirect_uri in the session
         session[self._session_key('redirect_uri')] = authorize_params['redirect_uri']
 
-        return OAuth2Service.get_authorize_url(self, **authorize_params)
+        print(authorize_params)
+
+        return redirect(self.get_authorize_url(**authorize_params))
 
     def authorized_handler(self, f):
         @wraps(f)
@@ -156,7 +154,7 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
         OAuth1Service.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
         RauthServiceMixin.__init__(self, app=app, base_url=base_url)
 
-    def get_authorize_url(self, **request_params):
+    def authorize(self, **request_params):
         # OAuth 1.0/a web authentication requires a oauth_callback value
         assert 'oauth_callback' in request_params, 'The "oauth_callback" must be provided when generating the authorize URL'
 
@@ -168,7 +166,7 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
         session[self._session_key('request_token')] = request_token
 
         # pass the token and any user-provided parameters
-        return OAuth1Service.get_authorize_url(self, request_token['request_token'])
+        return redirect(self.get_authorize_url(request_token['request_token']))
 
     def authorized_handler(self, f):
         @wraps(f)
