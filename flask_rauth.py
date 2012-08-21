@@ -16,7 +16,8 @@ from werkzeug import url_decode, url_encode, url_quote, \
      parse_options_header, Headers
 from werkzeug.routing import BuildError
 import oauth2
-from rauth.service import OAuth2Service, OAuth1Service, OflyService
+import json
+from rauth.service import OAuth2Service, OAuth1Service, OflyService, Response
 
 def infer_redirect_uri(val):
     # don't even waste our time with falsy values
@@ -111,8 +112,6 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
         # save the redirect_uri in the session
         session[self._session_key('redirect_uri')] = authorize_params['redirect_uri']
 
-        print(authorize_params)
-
         return redirect(self.get_authorize_url(**authorize_params))
 
     def authorized_handler(self, f):
@@ -142,7 +141,7 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
         # add in the access_token
         if 'params' not in kwargs:
             kwargs['params'] = {'access_token': access_token}
-        else:
+        elif 'access_token' not in kwargs['params']:
             # TODO: handle if the user sends bytes -> properly append 'access_token'
             kwargs['params']['access_token'] = access_token
 
@@ -191,6 +190,53 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
 
         # call the parent implementation
         return OAuth1Service.request(self, method, url, access_token=oauth_token, access_token_secret=oauth_token_secret, **kwargs)
+
+class RauthOfly(OflyService, RauthServiceMixin):
+    def __init__(self, app=None, base_url=None, consumer_key=None, consumer_secret=None, **kwargs):
+        OflyService.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
+        RauthServiceMixin.__init__(self, app=app, base_url=base_url)
+
+    def authorize(self, **authorize_params):
+        # Ofly web authentication (== "app authentication" == "seamless sign-in") requires a redirect_uri value
+        assert 'redirect_uri' in authorize_params, 'The "redirect_uri" must be provided when generating the authorize URL'
+
+        # pass the token and any user-provided parameters
+        return redirect(self.get_authorize_url(**authorize_params))
+
+    def authorized_handler(self, f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            error = False
+            resp = None
+            if 'oflyUserid' not in request.args:
+                raise OAuthException('No oflyUserid provided in authorization grant')
+            elif request.args['oflyUserid'] == 'no-grant':
+                error = True
+            else:
+                resp = {
+                    'oflyUserid': request.args.get('oflyUserid'),
+                    'oflyAppId': request.args.get('oflyAppId'),
+                    'oflyUserEmail': request.args.get('oflyUserEmail')
+                }
+
+            return f(*((error, resp) + args), **kwargs)
+        return decorated
+
+    def request(self, method, url, oflyUserid=None, **kwargs):
+        url = self._expand_url(url)
+
+        if oflyUserid is None and self.tokengetter_f is not None:
+            oflyUserid = self.tokengetter_f()
+
+        # add in the access_token
+        if 'params' not in kwargs:
+            kwargs['params'] = {'oflyUserid': oflyUserid}
+        elif 'oflyUserid' not in kwargs['params']:
+            # TODO: handle if the user sends bytes -> properly append 'oflyUserid'
+            kwargs['params']['oflyUserid'] = oflyUserid
+
+        # call the parent implementation
+        return OflyService.request(self, method, url, **kwargs)
 
 _etree = None
 def get_etree():
