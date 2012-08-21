@@ -62,8 +62,8 @@ class RauthServiceMixin(object):
             url = urljoin(self.base_url, url)
         return url
 
-    def _session_key(self):
-        return '%s_%s_redirect_uri' % (self.name, self.__class__.__name__)
+    def _session_key(self, suffix):
+        return '%s_%s_%s' % (self.name, self.__class__.__name__, suffix)
 
     @property
     def consumer_key(self):
@@ -113,7 +113,7 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
         assert 'redirect_uri' in authorize_params, 'The "redirect_uri" must be provided when generating the authorize URL'
 
         # save the redirect_uri in the session
-        session[self._session_key()] = authorize_params['redirect_uri']
+        session[self._session_key('redirect_uri')] = authorize_params['redirect_uri']
 
         return OAuth2Service.get_authorize_url(self, **authorize_params)
 
@@ -129,7 +129,7 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
             else:
                 resp = self.get_access_token(data={
                     'code': request.args['code'],
-                    'redirect_uri': session.pop(self._session_key(), None)
+                    'redirect_uri': session.pop(self._session_key('redirect_uri'), None)
                 })
 
             return f(*((error, resp) + args), **kwargs)
@@ -150,6 +150,49 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
 
         # call the parent implementation
         return OAuth2Service.request(self, method, url, **kwargs)
+
+class RauthOAuth1(OAuth1Service, RauthServiceMixin):
+    def __init__(self, app=None, base_url=None, consumer_key=None, consumer_secret=None, **kwargs):
+        OAuth1Service.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
+        RauthServiceMixin.__init__(self, app=app, base_url=base_url)
+
+    def get_authorize_url(self, **request_params):
+        # OAuth 1.0/a web authentication requires a oauth_callback value
+        assert 'oauth_callback' in request_params, 'The "oauth_callback" must be provided when generating the authorize URL'
+
+        # fetch the request_token (token and secret 2-tuple) and convert it to a dict
+        request_token = self.get_request_token(oauth_callback=request_params['oauth_callback'])
+        request_token = {'request_token': request_token[0], 'request_token_secret': request_token[1]}
+
+        # save the request_token in the session
+        session[self._session_key('request_token')] = request_token
+
+        # pass the token and any user-provided parameters
+        return OAuth1Service.get_authorize_url(self, request_token['request_token'])
+
+    def authorized_handler(self, f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            error = False
+            resp = None
+            if 'oauth_verifier' not in request.args:
+                error = True
+            else:
+                resp = self.get_access_token(data={
+                    'oauth_verifier': request.args['oauth_verifier']
+                }, **session.pop(self._session_key('request_token'), {}))
+
+            return f(*((error, resp) + args), **kwargs)
+        return decorated
+
+    def request(self, method, url, oauth_token=None, **kwargs):
+        url = self._expand_url(url)
+
+        if oauth_token is None and oauth_token_secret is None and self.tokengetter_f is not None:
+            oauth_token, oauth_token_secret = self.tokengetter_f()
+
+        # call the parent implementation
+        return OAuth1Service.request(self, method, url, access_token=oauth_token, access_token_secret=oauth_token_secret, **kwargs)
 
 _etree = None
 def get_etree():
