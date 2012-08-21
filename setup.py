@@ -2,26 +2,25 @@
 Flask-Rauth
 -----------
 
-Adds OAuth 1.0/a, 2.0, and Ofly support to Flask.
+Adds OAuth 1.0/a, 2.0, and Ofly consumer support for Flask.
 
 Links
 `````
 
-* `documentation <http://packages.python.org/Flask-OAuth>`_
-* `development version
-  <http://github.com/mitsuhiko/flask-oauth/zipball/master#egg=Flask-OAuth-dev>`_
+* `development version <http://github.com/joelverhagen/flask-rauth/zipball/master#egg=Flask-OAuth-dev>`_
+* `rauth <https://github.com/litl/rauth>`_
 """
 from setuptools import setup
 
 
 setup(
     name='Flask-Rauth',
-    version='0.1',
-    url='https://bitbucket.org/knapcode/flask-rauth',
+    version='0.2',
+    url='https://github.com/joelverhagen/flask-rauth',
     license='BSD',
-    author='Armin Ronacher',
-    author_email='armin.ronacher@active-4.com',
-    description='Adds OAuth 1.0/a, 2.0, and Ofly support support to Flask',
+    author='Joel Verhagen',
+    author_email='joel.verhagen@gmail.com',
+    description='Adds OAuth 1.0/a, 2.0, and Ofly consumer support for Flask.',
     long_description=__doc__,
     py_modules=['flask_rauth'],
     zip_safe=False,

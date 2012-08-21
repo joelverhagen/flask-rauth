@@ -1,7 +1,9 @@
-Flask-OAuth
+Flask-Rauth
 
-Implements basic OAuth support for Flask.  Currently it can only
-be used to hook up with external OAuth services.  It does not yet
-support implementing providers.
+Adds OAuth 1.0/a, 2.0, and Ofly consumer support for Flask, using the rauth library.
+https://github.com/litl/rauth
 
-Documentation: http://packages.python.org/Flask-OAuth/
+Flask-Rauth is a fork of Armin Ronacher's Flask-OAuth.
+https://github.com/mitsuhiko/flask-oauth
+
+The code is in working order, however I am currently working on document.

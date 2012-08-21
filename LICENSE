@@ -1,4 +1,6 @@
+Flask-Rauth is a fork of Armin Ronacher's Flask-OAuth.
 Copyright (c) 2010 by Armin Ronacher.
+Copyright (c) 2012 by Joel Verhagen.
 
 Some rights reserved.
 

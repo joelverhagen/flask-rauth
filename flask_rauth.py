@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-    flask_oauth
-    ~~~~~~~~~~~
+    flask.ext.rauth
+    ~~~~~~~~~~~~~~~
 
-    Implements basic OAuth support for Flask.
+    Adds OAuth 1.0/a, 2.0, and Ofly consumer support for Flask.
 
+    Flask-Rauth is a fork of Armin Ronacher's Flask-OAuth.
     :copyright: (c) 2010 by Armin Ronacher.
+    :copyright: (c) 2012 by Joel Verhagen.
     :license: BSD, see LICENSE for more details.
 """
 from functools import wraps
