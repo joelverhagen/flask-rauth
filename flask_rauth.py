@@ -36,6 +36,7 @@ def infer_redirect_uri(val):
 
 class RauthServiceMixin(object):
     def __init__(self, app, base_url):
+        self.app = app
         if app is not None:
             self.init_app(app)
 
@@ -44,8 +45,8 @@ class RauthServiceMixin(object):
 
     def init_app(self, app):
         # the name attribute will be set by a rauth service
-        app.config.setdefault('%s_CONSUMER_KEY' % (self.name.upper(),), None)
-        app.config.setdefault('%s_CONSUMER_SECRET' % (self.name.upper(),), None)
+        app.config.setdefault(self._consumer_key_config())
+        app.config.setdefault(self._consumer_secret_config())
 
     # alias of get_authorize_url to help people who have used Flask-OAuth 
     def authorize(self, **kwargs):
@@ -66,11 +67,15 @@ class RauthServiceMixin(object):
 
     @property
     def consumer_key(self):
-        # if a consumer key was assigned during run-time or provided in the constructor, default to that
         if self.static_consumer_key is not None:
+            # if a consumer key was provided in the constructor, default to that
             return self.static_consumer_key
+        elif self.app is not None and self._consumer_key_config() in self.app.config:
+            # if an app was provided in the constructor, search its config first
+            return self.app.config[self._consumer_key_config()]
+
         # otherwise, search in the current_app config
-        return current_app.config['%s_CONSUMER_KEY' % (self.name.upper(),)]
+        return current_app.config.get(self._consumer_key_config(), None)
 
     @consumer_key.setter
     def consumer_key(self, consumer_key):
@@ -79,12 +84,24 @@ class RauthServiceMixin(object):
     @property
     def consumer_secret(self):
         if self.static_consumer_secret is not None:
+            # if a consumer secret was provided in the constructor, default to that
             return self.static_consumer_secret
-        return current_app.config['%s_CONSUMER_SECRET' % (self.name.upper(),)]
+        elif self.app is not None and self._consumer_secret_config() in self.app.config:
+            # if an app was provided in the constructor, search its config first
+            return self.app.config[self._consumer_secret_config()]
+
+        # otherwise, search in the current_app config
+        return current_app.config.get(self._consumer_secret_config(), None)
 
     @consumer_secret.setter
     def consumer_secret(self, consumer_secret):
         self.static_consumer_secret = consumer_secret
+
+    def _consumer_key_config(self):
+        return '%s_CONSUMER_KEY' % (self.name.upper(),)
+
+    def _consumer_secret_config(self):
+        return '%s_CONSUMER_SECRET' % (self.name.upper(),)
 
 class RauthOAuth2(OAuth2Service, RauthServiceMixin):
     def __init__(self, app=None, base_url=None, consumer_key=None, consumer_secret=None, **kwargs):
