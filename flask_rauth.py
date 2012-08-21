@@ -55,11 +55,14 @@ class RauthServiceMixin(object):
         self.tokengetter_f = f
         return f
 
-    def expand_url(self, url):
+    def _expand_url(self, url):
         # prepend the base base_url, if we have it
         if self.base_url is not None:
             url = urljoin(self.base_url, url)
         return url
+
+    def _session_key(self):
+        return '%s_%s_redirect_uri' % (self.name, self.__class__.__name__)
 
     @property
     def consumer_key(self):
@@ -84,39 +87,18 @@ class RauthServiceMixin(object):
         self.static_consumer_secret = consumer_secret
 
 class RauthOAuth2(OAuth2Service, RauthServiceMixin):
-    def __init__(self, app=None, base_url=None, authorize_callback=None, authorize_params={}, consumer_key=None, consumer_secret=None, **kwargs):
-        self.authorize_callback = authorize_callback
-        self.authorize_params = authorize_params
-
+    def __init__(self, app=None, base_url=None, consumer_key=None, consumer_secret=None, **kwargs):
         OAuth2Service.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
         RauthServiceMixin.__init__(self, app=app, base_url=base_url)
 
-    def get_authorize_url(self, **override):
-        # we cannot allow the redirect_uri to be provided as a kwarg to this function, because the exact same value is required in authorized_handler
-        assert 'redirect_uri' not in override, 'The "redirect_uri" cannot be passed to get_authorize_url'
+    def get_authorize_url(self, **authorize_params):
+        # OAuth 2.0 requires a redirect_uri value
+        assert 'redirect_uri' in authorize_params, 'The "redirect_uri" must be provided when generating the authorize URL'
 
-        # apply defaults set from the constructor
-        authorize_params = self.authorize_params.copy()
-        authorize_params.update(override)
-
-        authorize_params['redirect_uri'] = self._get_redirect_uri(authorize_params)
+        # save the redirect_uri in the session
+        session[self._session_key()] = authorize_params['redirect_uri']
 
         return OAuth2Service.get_authorize_url(self, **authorize_params)
-
-    def _get_redirect_uri(self, authorize_params=None):
-        if authorize_params is None:
-            authorize_params = self.authorize_params
-
-        # make sure the user provides the redirect_uri in exactly one of two ways
-        assert ('redirect_uri' in authorize_params) != (self.authorize_callback is not None), 'You must either provided the "redirect_uri" as an authorize_params["redirect_uri"] or by passing an "authorize_callback" value'
-
-        # try convert the provided redirect_uri to an absolute URL string
-        if self.authorize_callback is not None:
-            # the redirect_uri was provided as authorize_callback
-            return infer_redirect_uri(self.authorize_callback)
-        else:
-            # the redirect_uri was provided in authorize_params
-            return infer_redirect_uri(authorize_params['redirect_uri'])
 
     def authorized_handler(self, f):
         @wraps(f)
@@ -130,13 +112,14 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
             else:
                 resp = self.get_access_token(data={
                     'code': request.args['code'],
-                    'redirect_uri': self._get_redirect_uri()
+                    'redirect_uri': session.pop(self._session_key(), None)
                 })
+
             return f(*((error, resp) + args), **kwargs)
         return decorated
 
     def request(self, method, url, access_token=None, **kwargs):
-        url = self.expand_url(url)
+        url = self._expand_url(url)
 
         if access_token is None and self.tokengetter_f is not None:
             access_token = self.tokengetter_f()
