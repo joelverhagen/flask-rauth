@@ -17,28 +17,92 @@ from werkzeug import url_decode, url_encode, url_quote, \
 from werkzeug.routing import BuildError
 import oauth2
 import json
-from rauth.service import OAuth2Service, OAuth1Service, OflyService, Response
+from rauth.service import OAuth2Service, OAuth1Service, OflyService, Response, parse_utf8_qsl
 
 # specified by the OAuth 2.0 spec
 # http://tools.ietf.org/html/draft-ietf-oauth-v2-31#section-4.1.4
 ACCESS_DENIED = 'access_denied'
 
-class FlaskRauthException(RuntimeError):
+_etree = None
+def get_etree():
+    """Return an elementtree implementation.  Prefers lxml"""
+    global _etree
+    if _etree is None:
+        try:
+            from lxml import etree as _etree
+        except ImportError:
+            try:
+                from xml.etree import cElementTree as _etree
+            except ImportError:
+                try:
+                    from xml.etree import ElementTree as _etree
+                except ImportError:
+                    pass
+    return _etree
+
+def parse_response(resp):
+    if resp.json is not None:
+        return resp.json
+
+    ct, _ = parse_options_header(resp.headers.get('content-type'))
+
+    if ct in ('application/xml', 'text/xml'):
+        etree = get_etree()
+        if etree is not None:
+            return etree.fromstring(resp.content)
+
+    if ct in ('application/atom+xml', 'application/rss+xml'):
+        try:
+            import feedparser
+            return feedparser.parse(resp.content)
+        except:
+            pass
+
+    if isinstance(resp.content, basestring):
+        return parse_utf8_qsl(resp.content)
+
+    return resp.content
+
+class RauthException(RuntimeError):
     """Raised if authorization fails for some reason."""
     message = None
 
-    def __init__(self, message, data=None):
-        #: A helpful error message for debugging
+    def __init__(self, message, response=None):
+        # a helpful error message for debugging
         self.message = message
-        #: If available, the parsed data from the remote API that can be
-        #: used to pointpoint the error.
-        self.data = data
+        
+        # if available, the parsed response from the remote API that can be used to pointpoint the error.
+        self.response = response
 
     def __str__(self):
         return self.message.encode('utf-8')
 
     def __unicode__(self):
         return self.message
+
+class RauthResponse(Response):
+    def __init__(self, resp):
+        # the original response
+        self.response = resp.response
+
+        self._cached_content = None
+
+    @property
+    def content(self):
+        if self._cached_content is None:
+            # the parsed content from the server
+            self._cached_content = parse_response(self.response)
+        return self._cached_content
+
+    @property
+    def status(self):
+        """The status code of the response."""
+        return self.resp.status_code
+
+    @property
+    def content_type(self):
+        """The Content-Type of the response."""
+        return self.resp.headers.get('content-type')
 
 class RauthServiceMixin(object):
     def __init__(self, app, base_url):
@@ -122,22 +186,23 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
     def authorized_handler(self, f):
         @wraps(f)
         def decorated(*args, **kwargs):
-            resp = None
+            resp = access_token = None
             if 'error' in request.args:
                 if  request.args['error'] == ACCESS_DENIED:
                     resp = ACCESS_DENIED
                 else:
-                    raise FlaskRauthException('An unexpected error occurred during authorization: error: "%s", error_description: "%s", error_uri: "%s"' % (request.args.get('error'), request.args.get('error_description'), request.args.get('error_uri')))
+                    raise RauthException('An unexpected error occurred during authorization: error: "%s", error_description: "%s", error_uri: "%s"' % (request.args.get('error'), request.args.get('error_description'), request.args.get('error_uri')))
             elif 'error' not in request.args and 'code' not in request.args:
                 # if this happens, there's probably a problem with the provider
-                raise FlaskRauthException('No error or code provided in the authorization grant')
+                raise RauthException('No error or code provided in the authorization grant')
             else:
                 resp = self.get_access_token(data={
                     'code': request.args['code'],
                     'redirect_uri': session.pop(self._session_key('redirect_uri'), None)
                 })
+                access_token = resp.content['access_token']
 
-            return f(*((resp,) + args), **kwargs)
+            return f(*((resp, access_token) + args), **kwargs)
         return decorated
 
     def request(self, method, url, access_token=None, **kwargs):
@@ -154,7 +219,7 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
             kwargs['params']['access_token'] = access_token
 
         # call the parent implementation
-        return OAuth2Service.request(self, method, url, **kwargs)
+        return RauthResponse(OAuth2Service.request(self, method, url, **kwargs))
 
 class RauthOAuth1(OAuth1Service, RauthServiceMixin):
     def __init__(self, app=None, base_url=None, consumer_key=None, consumer_secret=None, **kwargs):
@@ -178,23 +243,28 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
     def authorized_handler(self, f):
         @wraps(f)
         def decorated(*args, **kwargs):
-            resp = None
+            resp = oauth_token = None
             if 'oauth_verifier' in request.args:
                 resp = self.get_access_token(data={
                     'oauth_verifier': request.args['oauth_verifier']
                 }, **session.pop(self._session_key('request_token'), {}))
+                oauth_token = (resp.content['oauth_token'], resp.content['oauth_token_secret'])
 
-            return f(*((resp,) + args), **kwargs)
+            return f(*((resp, oauth_token) + args), **kwargs)
         return decorated
 
     def request(self, method, url, oauth_token=None, **kwargs):
         url = self._expand_url(url)
 
-        if oauth_token is None and oauth_token_secret is None and self.tokengetter_f is not None:
-            oauth_token, oauth_token_secret = self.tokengetter_f()
+        if oauth_token is None and self.tokengetter_f is not None:
+            oauth_token = self.tokengetter_f()
+
+        # take apart the 2-tuple
+        if oauth_token is not None:
+            oauth_token, oauth_token_secret = oauth_token
 
         # call the parent implementation
-        return OAuth1Service.request(self, method, url, access_token=oauth_token, access_token_secret=oauth_token_secret, **kwargs)
+        return RauthResponse(OAuth1Service.request(self, method, url, access_token=oauth_token, access_token_secret=oauth_token_secret, **kwargs))
 
 class RauthOfly(OflyService, RauthServiceMixin):
     def __init__(self, app=None, base_url=None, consumer_key=None, consumer_secret=None, **kwargs):
@@ -211,9 +281,9 @@ class RauthOfly(OflyService, RauthServiceMixin):
     def authorized_handler(self, f):
         @wraps(f)
         def decorated(*args, **kwargs):
-            resp = None
+            resp = oflyUserid = None
             if 'oflyUserid' not in request.args:
-                raise FlaskRauthException('No oflyUserid provided in the authorization grant')
+                raise RauthException('No oflyUserid provided in the authorization grant')
             elif request.args['oflyUserid'] == 'no-grant':
                 resp = ACCESS_DENIED
             else:
@@ -222,8 +292,9 @@ class RauthOfly(OflyService, RauthServiceMixin):
                     'oflyAppId': request.args.get('oflyAppId'),
                     'oflyUserEmail': request.args.get('oflyUserEmail')
                 }
+                oflyUserid = request.args['oflyUserid']
 
-            return f(*((resp,) + args), **kwargs)
+            return f(*((resp, oflyUserid) + args), **kwargs)
         return decorated
 
     def request(self, method, url, oflyUserid=None, **kwargs):
@@ -240,43 +311,7 @@ class RauthOfly(OflyService, RauthServiceMixin):
             kwargs['params']['oflyUserid'] = oflyUserid
 
         # call the parent implementation
-        return OflyService.request(self, method, url, **kwargs)
-
-_etree = None
-def get_etree():
-    """Return an elementtree implementation.  Prefers lxml"""
-    global _etree
-    if _etree is None:
-        try:
-            from lxml import etree as _etree
-        except ImportError:
-            try:
-                from xml.etree import cElementTree as _etree
-            except ImportError:
-                try:
-                    from xml.etree import ElementTree as _etree
-                except ImportError:
-                    raise TypeError('lxml or etree not found')
-    return _etree
-
-
-def parse_response(resp, content, strict=False):
-    ct, options = parse_options_header(resp['content-type'])
-    if ct in ('application/json', 'text/javascript'):
-        return json.loads(content)
-    elif ct in ('application/xml', 'text/xml'):
-        # technically, text/xml is ascii based but because many
-        # implementations get that wrong and utf-8 is a superst
-        # of utf-8 anyways, there is not much harm in assuming
-        # utf-8 here
-        charset = options.get('charset', 'utf-8')
-        return get_etree().fromstring(content.decode(charset))
-    elif ct != 'application/x-www-form-urlencoded':
-        if strict:
-            return content
-    charset = options.get('charset', 'utf-8')
-    return url_decode(content, charset=charset).to_dict()
-
+        return RauthResponse(OflyService.request(self, method, url, **kwargs))
 
 def add_query(url, args):
     if not args:
