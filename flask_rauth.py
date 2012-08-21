@@ -11,7 +11,7 @@
 import httplib2
 from functools import wraps
 from urlparse import urljoin
-from flask import request, session, json, redirect, url_for
+from flask import request, session, json, redirect, url_for, current_app
 from werkzeug import url_decode, url_encode, url_quote, \
      parse_options_header, Headers
 from werkzeug.routing import BuildError
@@ -34,17 +34,59 @@ def get_redirect_uri(val):
             # or maybe they just passed an absolute URL
             return val
 
-class RauthOAuth2(OAuth2Service):
-    def __init__(self, app=None, base_url=None, authorize_params={}, **kwargs):
-        self.authorize_params = authorize_params
-        self.base_url = base_url
-        self.get_token = None
+class RauthServiceMixin(object):
+    def __init__(self, app, base_url):
+        if app is not None:
+            self.init_app(app)
 
-        super(RauthOAuth2, self).__init__(**kwargs)
+        self.base_url = base_url
+
+    def init_app(self, app):
+        # the name attribute will be set by a rauth service
+        app.config.setdefault('%s_CONSUMER_KEY' % (self.name.upper(),), None)
+        app.config.setdefault('%s_CONSUMER_SECRET' % (self.name.upper(),), None)
 
     # alias of get_authorize_url to help people who have used Flask-OAuth 
     def authorize(self, **kwargs):
         return self.get_authorize_url(**kwargs)
+
+    def tokengetter(self, f):
+        self.get_token = f
+        return f
+
+    def expand_url(self, url):
+        # prepend the base base_url, if we have it
+        if self.base_url is not None:
+            url = urljoin(self.base_url, url)
+        return url
+
+    @property
+    def consumer_key(self):
+        if self.static_consumer_key is not None:
+            return self.static_consumer_key
+        return current_app.config['%s_CONSUMER_KEY' % (self.name.upper(),)]
+
+    @consumer_key.setter
+    def consumer_key(self, consumer_key):
+        self.static_consumer_key = consumer_key
+
+    @property
+    def consumer_secret(self):
+        if self.static_consumer_secret is not None:
+            return self.static_consumer_secret
+        return current_app.config['%s_CONSUMER_SECRET' % (self.name.upper(),)]
+
+    @consumer_secret.setter
+    def consumer_secret(self, consumer_secret):
+        self.static_consumer_secret = consumer_secret
+
+class RauthOAuth2(OAuth2Service, RauthServiceMixin):
+    def __init__(self, app=None, base_url=None, authorize_params={}, consumer_key=None, consumer_secret=None, **kwargs):
+        self.authorize_params = authorize_params
+        self.get_token = None
+
+        OAuth2Service.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
+        RauthServiceMixin.__init__(self, app=app, base_url=base_url)
 
     def get_authorize_url(self, **override):
         # apply defaults set from the constructor
@@ -55,7 +97,7 @@ class RauthOAuth2(OAuth2Service):
         if 'redirect_uri' in authorize_params:
             authorize_params['redirect_uri'] = get_redirect_uri(authorize_params['redirect_uri'])
 
-        return super(RauthOAuth2, self).get_authorize_url(**authorize_params)
+        return OAuth2Service.get_authorize_url(self, **authorize_params)
 
     def authorized_handler(self, f):
         @wraps(f)
@@ -74,14 +116,8 @@ class RauthOAuth2(OAuth2Service):
             return f(*((error, resp) + args), **kwargs)
         return decorated
 
-    def tokengetter(self, f):
-        self.get_token = f
-        return f
-
     def request(self, method, url, access_token=None, **kwargs):
-        # resolve the base_url
-        if self.base_url is not None:
-            url = urljoin(self.base_url, url)
+        url = self.expand_url(url)
 
         if access_token is None and self.get_token is not None:
             access_token = self.get_token()
@@ -94,7 +130,7 @@ class RauthOAuth2(OAuth2Service):
             kwargs['params']['access_token'] = access_token
 
         # call the parent implementation
-        return super(RauthOAuth2, self).request(method, url, **kwargs)
+        return OAuth2Service.request(self, method, url, **kwargs)
 
 _etree = None
 def get_etree():
