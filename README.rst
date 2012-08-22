@@ -1,15 +1,22 @@
 Flask-Rauth
-============
+===========
 
-Adds OAuth 1.0/a, 2.0, and Ofly consumer support for Flask, using the rauth library.
+Adds OAuth 1.0/a, 2.0, and Ofly consumer support for `Flask`__, using the
+`rauth`__ library.
 
-https://github.com/litl/rauth
+__ http://flask.pocoo.org/
+__ http://rauth.readthedocs.org/en/latest/
 
-Flask-Rauth is a fork of Armin Ronacher's Flask-OAuth.
+Flask-Rauth is a fork of Armin Ronacher's `Flask-OAuth`__.
 
-https://github.com/mitsuhiko/flask-oauth
+__ https://github.com/mitsuhiko/flask-oauth
 
 Current Status
 ~~~~~~~~~~~~~~
 
-The code is in working order. However, I am currently working on documentation.
+**The code is usable.**
+
+The code and examples are in working order (use HEAD). Since the documentation
+is still in progress, festidiously study the `examples`__ to get started.
+
+__ https://github.com/joelverhagen/flask-rauth/tree/master/example
