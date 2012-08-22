@@ -102,6 +102,12 @@ class RauthException(RuntimeError):
         return self.message
 
 class RauthResponse(Response):
+    '''
+    This class inherits :class:`rauth.service.Response`.
+
+    :param resp: A :class:`rauth.service.Response`, whose `response` attribute
+        will be re-wrapped, with better content parsing.
+    '''
     def __init__(self, resp):
         # the original response
         self.response = resp.response
@@ -126,14 +132,14 @@ class RauthResponse(Response):
         '''
         The status code of the response.
         '''
-        return self.resp.status_code
+        return self.response.status_code
 
     @property
     def content_type(self):
         '''
         The Content-Type of the response.
         '''
-        return self.resp.headers.get('content-type')
+        return self.response.headers.get('content-type')
 
 class RauthServiceMixin(object):
     '''
@@ -209,7 +215,7 @@ class RauthServiceMixin(object):
         return current_app.config.get(self._consumer_key_config(), None)
 
     @consumer_key.setter
-    def consumer_key_setter(self, consumer_key):
+    def consumer_key(self, consumer_key):
         self.static_consumer_key = consumer_key
 
     @property
@@ -229,7 +235,7 @@ class RauthServiceMixin(object):
         return current_app.config.get(self._consumer_secret_config(), None)
 
     @consumer_secret.setter
-    def consumer_secret_setter(self, consumer_secret):
+    def consumer_secret(self, consumer_secret):
         self.static_consumer_secret = consumer_secret
 
     def _consumer_key_config(self):
@@ -260,11 +266,11 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
         OAuth2Service.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
         RauthServiceMixin.__init__(self, app=app, base_url=base_url)
 
-    def authorize(self, redirect_uri, **authorize_params):
+    def authorize(self, callback, **authorize_params):
         '''
         Begins the OAuth 2.0 authorization process for this service.
 
-        :param redirect_uri: The **required** absolute URL that will be
+        :param callback: The **required** absolute URL that will be
             redirected to by the OAuth 2.0 endpoint after authorization is
             complete.
         :param authorize_params: Query parameters to be passed to authorization,
@@ -272,9 +278,9 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
             `scope`.
         '''
         # save the redirect_uri in the session
-        session[self._session_key('redirect_uri')] = redirect_uri
+        session[self._session_key('redirect_uri')] = callback
 
-        return redirect(self.get_authorize_url(redirect_uri=redirect_uri, **authorize_params))
+        return redirect(self.get_authorize_url(redirect_uri=callback, **authorize_params))
 
     def authorized_handler(self, f):
         '''
@@ -299,10 +305,14 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
                 # if this happens, there's probably a problem with the provider
                 raise RauthException('No error or code provided in the authorization grant')
             else:
-                resp = self.get_access_token(data={
+                resp = RauthResponse(self.get_access_token(data={
                     'code': request.args['code'],
                     'redirect_uri': session.pop(self._session_key('redirect_uri'), None)
-                })
+                }))
+
+                if resp.status != 200:
+                    raise RauthException('An error occurred during OAuth 2.0 authorization', resp)
+
                 access_token = resp.content['access_token']
 
             return f(*((resp, access_token) + args), **kwargs)
@@ -355,9 +365,19 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
         OAuth1Service.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
         RauthServiceMixin.__init__(self, app=app, base_url=base_url)
 
-    def authorize(self, oauth_callback=None, **request_params):
+    def authorize(self, callback, **request_params):
+        '''
+        Begins the OAuth 1.0a authorization process for this service.
+
+        :param callback: The **required** absolute URL that will be
+            redirected to by the OAuth 1.0 endpoint after authorization is
+            complete.
+        :param request_params: Query parameters to be passed to the request,
+            token endpoint, in addition to the `callback`. One common example
+            is `scope`.
+        '''
         # fetch the request_token (token and secret 2-tuple) and convert it to a dict
-        request_token = self.get_request_token(oauth_callback=oauth_callback)
+        request_token = self.get_request_token(oauth_callback=callback, **request_params)
         request_token = {'request_token': request_token[0], 'request_token_secret': request_token[1]}
 
         # save the request_token in the session
@@ -380,9 +400,13 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
         def decorated(*args, **kwargs):
             resp = oauth_token = None
             if 'oauth_verifier' in request.args:
-                resp = self.get_access_token(data={
+                resp = RauthResponse(self.get_access_token(data={
                     'oauth_verifier': request.args['oauth_verifier']
-                }, **session.pop(self._session_key('request_token'), {}))
+                }, **session.pop(self._session_key('request_token'), {})))
+
+                if resp.status != 200:
+                    raise RauthException('An error occurred during OAuth 1.0a authorization', resp)
+
                 oauth_token = (resp.content['oauth_token'], resp.content['oauth_token_secret'])
 
             return f(*((resp, oauth_token) + args), **kwargs)
@@ -418,12 +442,20 @@ class RauthOfly(OflyService, RauthServiceMixin):
         OflyService.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
         RauthServiceMixin.__init__(self, app=app, base_url=base_url)
 
-    def authorize(self, **authorize_params):
-        # Ofly web authentication (== "app authentication" == "seamless sign-in") requires a redirect_uri value
-        assert 'redirect_uri' in authorize_params, 'The "redirect_uri" must be provided when generating the authorize URL'
+    def authorize(self, callback, **authorize_params):
+        '''
+        Begins the Ofly authorization process for this service.
 
-        # pass the token and any user-provided parameters
-        return redirect(self.get_authorize_url(**authorize_params))
+        :param callback: The **required** absolute URL that will be
+            redirected to by the Ofly endpoint after authorization is
+            complete.
+        :param authorize_params: Query parameters to be passed to the request,
+            token endpoint, in addition to the `callback`.
+        '''
+        # Ofly web authentication (== "app authentication" == "seamless sign-in") requires a redirect_uri value
+
+        # pass the callback and any user-provided parameters
+        return redirect(self.get_authorize_url(redirect_uri=callback, **authorize_params))
 
     def authorized_handler(self, f):
         '''
@@ -445,6 +477,10 @@ class RauthOfly(OflyService, RauthServiceMixin):
                     'oflyAppId': request.args.get('oflyAppId'),
                     'oflyUserEmail': request.args.get('oflyUserEmail')
                 }
+
+                if resp.status != 200:
+                    raise RauthException('An error occurred during Ofly authorization', resp)
+
                 oflyUserid = request.args['oflyUserid']
 
             return f(*((resp, oflyUserid) + args), **kwargs)

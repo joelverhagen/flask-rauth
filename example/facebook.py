@@ -1,26 +1,21 @@
-from flask import Flask, redirect, url_for, session, request
-from flask.ext.oauth import OAuth
-
-
-SECRET_KEY = 'development key'
-DEBUG = True
-FACEBOOK_APP_ID = '188477911223606'
-FACEBOOK_APP_SECRET = '621413ddea2bcc5b2e83d42fc40495de'
-
+from flask import Flask, redirect, url_for, session, request, Response
+from flask.ext.rauth import RauthOAuth2
 
 app = Flask(__name__)
-app.debug = DEBUG
-app.secret_key = SECRET_KEY
-oauth = OAuth()
+app.config.update(
+    SECRET_KEY='just a secret key, to confound the bad guys',
+    DEBUG=True
+)
 
-facebook = oauth.remote_app('facebook',
+# you can specify your consumer key and consumer secret when constructing
+#   the Rauth service, like this:
+facebook = RauthOAuth2(
+    name='facebook',
     base_url='https://graph.facebook.com/',
-    request_token_url=None,
-    access_token_url='/oauth/access_token',
+    access_token_url='https://graph.facebook.com/oauth/access_token',
     authorize_url='https://www.facebook.com/dialog/oauth',
-    consumer_key=FACEBOOK_APP_ID,
-    consumer_secret=FACEBOOK_APP_SECRET,
-    request_token_params={'scope': 'email'}
+    consumer_key='your_consumer_key',
+    consumer_secret='your_consumer_secret'
 )
 
 
@@ -31,28 +26,28 @@ def index():
 
 @app.route('/login')
 def login():
-    return facebook.authorize(callback=url_for('facebook_authorized',
+    return facebook.authorize(callback=url_for('authorized',
         next=request.args.get('next') or request.referrer or None,
         _external=True))
 
 
 @app.route('/login/authorized')
 @facebook.authorized_handler
-def facebook_authorized(resp):
-    if resp is None:
-        return 'Access denied: reason=%s error=%s' % (
-            request.args['error_reason'],
-            request.args['error_description']
-        )
-    session['oauth_token'] = (resp['access_token'], '')
-    me = facebook.get('/me')
-    return 'Logged in as id=%s name=%s redirect=%s' % \
-        (me.data['id'], me.data['name'], request.args.get('next'))
+def authorized(resp, access_token):
+    if resp == 'access_denied':
+        return 'You denied access, meanie. Click <a href="%s">here</a> to try again.' % (url_for('login'),)
+
+    session['access_token'] = access_token
+
+    me = facebook.get('me')
+    
+    from pprint import pformat
+    return Response(pformat(me.content), mimetype='text/plain')
 
 
 @facebook.tokengetter
 def get_facebook_oauth_token():
-    return session.get('oauth_token')
+    return session.get('access_token')
 
 
 if __name__ == '__main__':

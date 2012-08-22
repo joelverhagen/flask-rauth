@@ -1,32 +1,25 @@
-from flask import Flask, redirect, url_for, session
-from flask.ext.oauth import OAuth
-
-
-# You must configure these 3 values from Google APIs console
-# https://code.google.com/apis/console
-GOOGLE_CLIENT_ID = '<Client-ID>'
-GOOGLE_CLIENT_SECRET = '<Client-secret>'
-REDIRECT_URI = '/authorized'  # one of the Redirect URIs from Google APIs console
-
-SECRET_KEY = 'development key'
-DEBUG = True
+from flask import Flask, redirect, url_for, session, Response
+from flask.ext.rauth import RauthOAuth2
 
 app = Flask(__name__)
-app.debug = DEBUG
-app.secret_key = SECRET_KEY
-oauth = OAuth()
+# you can specify the consumer key and consumer secret in the application,
+#   like this:
+app.config.update(
+    GOOGLE_CONSUMER_KEY='your_conumser_key',
+    GOOGLE_CONSUMER_SECRET='your_conumser_secret',
+    SECRET_KEY='just a secret key, to confound the bad guys',
+    DEBUG=True
+)
 
-google = oauth.remote_app('google',
-                          base_url='https://www.google.com/accounts/',
-                          authorize_url='https://accounts.google.com/o/oauth2/auth',
-                          request_token_url=None,
-                          request_token_params={'scope': 'https://www.googleapis.com/auth/userinfo.email',
-                                                'response_type': 'code'},
-                          access_token_url='https://accounts.google.com/o/oauth2/token',
-                          access_token_method='POST',
-                          access_token_params={'grant_type': 'authorization_code'},
-                          consumer_key=GOOGLE_CLIENT_ID,
-                          consumer_secret=GOOGLE_CLIENT_SECRET)
+google = RauthOAuth2(
+    name='google',
+    base_url='https://www.googleapis.com/oauth2/v1/',
+    access_token_url='https://accounts.google.com/o/oauth2/token',
+    authorize_url='https://accounts.google.com/o/oauth2/auth'
+)
+
+# the Rauth service detects the consumer_key and consumer_secret using
+#   `current_app`.
 
 @app.route('/')
 def index():
@@ -34,43 +27,29 @@ def index():
     if access_token is None:
         return redirect(url_for('login'))
 
-    access_token = access_token[0]
-    from urllib2 import Request, urlopen, URLError
+    userinfo = google.get('userinfo', access_token=access_token)
 
-    headers = {'Authorization': 'OAuth '+access_token}
-    req = Request('https://www.googleapis.com/oauth2/v1/userinfo',
-                  None, headers)
-    try:
-        res = urlopen(req)
-    except URLError:
-        return res.read()
-
-    return res.read()
+    from pprint import pformat
+    return Response(pformat(userinfo.content), mimetype='text/plain')
 
 
 @app.route('/login')
 def login():
-    callback=url_for('authorized', _external=True)
-    return google.authorize(callback=callback)
+    return google.authorize(
+        callback=url_for('authorized', _external=True),
+        scope='https://www.googleapis.com/auth/userinfo.profile')
 
 
-
-@app.route(REDIRECT_URI)
+@app.route('/authorized')
 @google.authorized_handler
-def authorized(resp):
-    access_token = resp['access_token']
-    session['access_token'] = access_token, ''
+def authorized(resp, access_token):
+    if resp == 'access_denied':
+        return 'You denied access, meanie. Click <a href="%s">here</a> to try again.' % (url_for('login'),)
+
+    session['access_token'] = access_token
+
     return redirect(url_for('index'))
 
 
-@google.tokengetter
-def get_access_token():
-    return session.get('access_token')
-
-
-def main():
-    app.run()
-
-
 if __name__ == '__main__':
-    main()
+    app.run()

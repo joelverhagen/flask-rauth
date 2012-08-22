@@ -1,46 +1,62 @@
-from flask import Flask, request, redirect, url_for, session, flash, g, \
-     render_template
-from flask.ext.oauth import OAuth
+'''
+Instructions:
 
-from sqlalchemy import create_engine, Column, Integer, String
+1. Make sure you have Flask, Flask-Rauth, and SQLAlchemy installed.
+
+       $ pip install Flask Flask-Rauth SQLAlchemy
+
+2. Open a Python shell in this directory and execute the following:
+
+       $ python
+       >>> from tweet import init_db
+       >>> init_db()
+       >>> exit()
+
+   This will initialize the SQLite database.
+
+3. Start the application.
+
+       $ python tweet.py
+
+4. Navigate your web browser to where this app is being served (localhost,
+   by default).
+'''
+from flask import Flask, request, redirect, url_for, session, flash, g, render_template
+from flask.ext.rauth import RauthOAuth1
+
+from sqlalchemy import create_engine, Column, Integer, String, Text
 from sqlalchemy.orm import scoped_session, sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
-# configuration
-DATABASE_URI = 'sqlite:////tmp/flask-oauth.db'
-SECRET_KEY = 'development key'
-DEBUG = True
-
 # setup flask
 app = Flask(__name__)
-app.debug = DEBUG
-app.secret_key = SECRET_KEY
-oauth = OAuth()
-
-# Use Twitter as example remote application
-twitter = oauth.remote_app('twitter',
-    # unless absolute urls are used to make requests, this will be added
-    # before all URLs.  This is also true for request_token_url and others.
-    base_url='http://api.twitter.com/1/',
-    # where flask should look for new request tokens
-    request_token_url='http://api.twitter.com/oauth/request_token',
-    # where flask should exchange the token with the remote application
-    access_token_url='http://api.twitter.com/oauth/access_token',
-    # twitter knows two authorizatiom URLs.  /authorize and /authenticate.
-    # they mostly work the same, but for sign on /authenticate is
-    # expected because this will give the user a slightly different
-    # user interface on the twitter side.
-    authorize_url='http://api.twitter.com/oauth/authenticate',
-    # the consumer keys from the twitter application registry.
-    consumer_key='xBeXxg9lyElUgwZT6AZ0A',
-    consumer_secret='aawnSpNTOVuDCjx7HMh6uSXetjNN8zWLpZwCEU4LBrk'
+# you can specify the consumer key and consumer secret in the application,
+#   like this:
+app.config.update(
+    TWITTER_CONSUMER_KEY='your_consumer_key',
+    TWITTER_CONSUMER_SECRET='your_consumer_secret',
+    SECRET_KEY='just a secret key, to confound the bad guys',
+    DEBUG = True
 )
 
+
+# setup the twitter endpoint
+twitter = RauthOAuth1(
+    name='twitter',
+    base_url='https://api.twitter.com/1/',
+    request_token_url='https://api.twitter.com/oauth/request_token',
+    access_token_url='https://api.twitter.com/oauth/access_token',
+    authorize_url='https://api.twitter.com/oauth/authorize'
+)
+
+# this call simply initializes default an empty consumer key and secret in the app
+#   config if none exist. 
+# I've included it to match the "look" of Flask extensions
+twitter.init_app(app)
+
 # setup sqlalchemy
-engine = create_engine(DATABASE_URI)
-db_session = scoped_session(sessionmaker(autocommit=False,
-                                         autoflush=False,
-                                         bind=engine))
+engine = create_engine('sqlite:////tmp/tweet.db')
+db_session = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
 Base = declarative_base()
 Base.query = db_session.query_property()
 
@@ -53,8 +69,8 @@ class User(Base):
     __tablename__ = 'users'
     id = Column('user_id', Integer, primary_key=True)
     name = Column(String(60))
-    oauth_token = Column(String(200))
-    oauth_secret = Column(String(200))
+    oauth_token = Column(Text)
+    oauth_secret = Column(Text)
 
     def __init__(self, name):
         self.name = name
@@ -75,13 +91,14 @@ def after_request(response):
 
 @twitter.tokengetter
 def get_twitter_token():
-    """This is used by the API to look for the auth token and secret
-    it should use for API calls.  During the authorization handshake
-    a temporary set of token and secret is used, but afterwards this
-    function has to return the token and secret.  If you don't want
-    to store this in the database, consider putting it into the
-    session instead.
-    """
+    '''
+    This is used by the API to look for the auth token and secret that are used
+    for Twitter API calls. If you don't want to store this in the database,
+    consider putting it into the session instead.
+
+    Since the Twitter API is OAuth 1.0a, the `tokengetter` must return a
+    2-tuple: (oauth_token, oauth_secret).
+    '''
     user = g.user
     if user is not None:
         return user.oauth_token, user.oauth_secret
@@ -93,7 +110,7 @@ def index():
     if g.user is not None:
         resp = twitter.get('statuses/home_timeline.json')
         if resp.status == 200:
-            tweets = resp.data
+            tweets = resp.content
         else:
             flash('Unable to load tweets from Twitter. Maybe out of '
                   'API calls or Twitter is overloaded.')
@@ -102,31 +119,38 @@ def index():
 
 @app.route('/tweet', methods=['POST'])
 def tweet():
-    """Calls the remote twitter API to create a new status update."""
+    '''
+    Calls the remote twitter API to create a new status update.
+    '''
     if g.user is None:
         return redirect(url_for('login', next=request.url))
     status = request.form['tweet']
     if not status:
         return redirect(url_for('index'))
     resp = twitter.post('statuses/update.json', data={
-        'status':       status
+        'status': status
     })
     if resp.status == 403:
         flash('Your tweet was too long.')
     elif resp.status == 401:
         flash('Authorization error with Twitter.')
     else:
-        flash('Successfully tweeted your tweet (ID: #%s)' % resp.data['id'])
+        flash('Successfully tweeted your tweet (ID: #%s)' % resp.content['id'])
     return redirect(url_for('index'))
 
 
 @app.route('/login')
 def login():
-    """Calling into authorize will cause the OpenID auth machinery to kick
-    in.  When all worked out as expected, the remote application will
-    redirect back to the callback URL provided.
-    """
-    return twitter.authorize(callback=url_for('oauth_authorized',
+    '''
+    Calling into `authorize` will cause the OAuth 1.0a machinery to kick
+    in. If all has worked out as expected or if the user denied access to
+    his/her information, the remote application will redirect back to the callback URL
+    provided.
+
+    Int our case, the 'authorized/' route handles the interaction after the redirect.
+    '''
+    return twitter.authorize(callback=url_for('authorized',
+        _external=True,
         next=request.args.get('next') or request.referrer or None))
 
 
@@ -137,39 +161,46 @@ def logout():
     return redirect(request.referrer or url_for('index'))
 
 
-@app.route('/oauth-authorized')
+@app.route('/authorized')
 @twitter.authorized_handler
-def oauth_authorized(resp):
-    """Called after authorization.  After this function finished handling,
-    the OAuth information is removed from the session again.  When this
-    happened, the tokengetter from above is used to retrieve the oauth
-    token and secret.
+def authorized(resp, oauth_token):
+    '''
+    Called after authorization. After this function finished handling,
+    the tokengetter from above is used to retrieve the 2-tuple containing the
+    oauth_token and oauth_token_secret.
 
-    Because the remote application could have re-authorized the application
-    it is necessary to update the values in the database.
+    Because reauthorization often changes any previous
+    oauth_token/oauth_token_secret values, then we must update them in the
+    database.
 
-    If the application redirected back after denying, the response passed
-    to the function will be `None`.  Otherwise a dictionary with the values
-    the application submitted.  Note that Twitter itself does not really
-    redirect back unless the user clicks on the application name.
-    """
+    If the application redirected back after denying, the `resp` passed
+    to the function will be `None`. Unfortunately, OAuth 1.0a (the version
+    that Twitter, LinkedIn, etc use) does not specify exactly what should
+    happen when the user denies access. In the case of Twitter, a query
+    parameter `denied=(some hash)` is appended to the redirect URL.
+    '''
     next_url = request.args.get('next') or url_for('index')
-    if resp is None:
+
+    # check for the Twitter-specific "access_denied" indicator
+    if resp is None and 'denied' in request.args:
         flash(u'You denied the request to sign in.')
         return redirect(next_url)
 
-    user = User.query.filter_by(name=resp['screen_name']).first()
+    # pull out the nicely parsed response content.
+    content = resp.content
 
-    # user never signed on
+    user = User.query.filter_by(name=content['screen_name']).first()
+
+    # this if the first time signing in for this user
     if user is None:
-        user = User(resp['screen_name'])
+        user = User(content['screen_name'])
         db_session.add(user)
 
-    # in any case we update the authenciation token in the db
-    # In case the user temporarily revoked access we will have
-    # new tokens here.
-    user.oauth_token = resp['oauth_token']
-    user.oauth_secret = resp['oauth_token_secret']
+    # we now update the oauth_token and oauth_token_secret
+    # this involves destructuring the 2-tuple that is passed back from the
+    #   Twitter API, so it can be easily stored in the SQL database
+    user.oauth_token = oauth_token[0]
+    user.oauth_secret = oauth_token[1]
     db_session.commit()
 
     session['user_id'] = user.id
