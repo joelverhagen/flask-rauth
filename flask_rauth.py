@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
+'''
     flask.ext.rauth
     ~~~~~~~~~~~~~~~
 
@@ -9,7 +9,7 @@
     :copyright: (c) 2010 by Armin Ronacher.
     :copyright: (c) 2012 by Joel Verhagen.
     :license: BSD, see LICENSE for more details.
-"""
+'''
 from functools import wraps
 from urlparse import urljoin
 from flask import request, session, redirect, current_app
@@ -22,7 +22,10 @@ ACCESS_DENIED = 'access_denied'
 
 _etree = None
 def get_etree():
-    """Return an elementtree implementation.  Prefers lxml"""
+    '''
+    Returns an elementtree implementation. Searches for `lxml.etree`, then
+    `xml.etree.cElementTree`, then `xml.etree.ElementTree`.
+    '''
     global _etree
     if _etree is None:
         try:
@@ -41,6 +44,18 @@ def get_etree():
     return _etree
 
 def parse_response(resp):
+    '''
+    Inspects a :class:`requests.Response` object and returns the content in a
+    more usable form. The following parsing checks are done:
+
+    1. JSON, using the `json` attribute.
+    2. XML, using :func:`get_etree`.
+    3. RSS or Atom, using :mod:`feedparser`, if available.
+    4. Query string, using :func:`parse_utf8_qsl`.
+    5. If all else fails the plain-text `content` is returned.
+
+    :param resp: A `requests.Response` object.
+    '''
     if resp.json is not None:
         return resp.json
 
@@ -64,14 +79,20 @@ def parse_response(resp):
     return resp.content
 
 class RauthException(RuntimeError):
-    """Raised if authorization fails for some reason."""
+    '''
+    Raised if authorization fails for some reason.
+
+    :param message: A helpful error message for debugging.
+    :param response: The :class:`requests.Response` object associated with the
+        failure, if available.
+    '''
     message = None
 
     def __init__(self, message, response=None):
         # a helpful error message for debugging
         self.message = message
         
-        # if available, the parsed response from the remote API that can be used to pointpoint the error.
+        # if available, the associate response object
         self.response = response
 
     def __str__(self):
@@ -89,6 +110,12 @@ class RauthResponse(Response):
 
     @property
     def content(self):
+        '''
+        The content associated with the response. The content is parsed into a
+        more useful format, if possible, using :func:`parse_response`.
+
+        The content is cached, so that :func:`parse_response` is only run once.
+        '''
         if self._cached_content is None:
             # the parsed content from the server
             self._cached_content = parse_response(self.response)
@@ -96,15 +123,28 @@ class RauthResponse(Response):
 
     @property
     def status(self):
-        """The status code of the response."""
+        '''
+        The status code of the response.
+        '''
         return self.resp.status_code
 
     @property
     def content_type(self):
-        """The Content-Type of the response."""
+        '''
+        The Content-Type of the response.
+        '''
         return self.resp.headers.get('content-type')
 
 class RauthServiceMixin(object):
+    '''
+    A mixin used to help glue Flask and `rauth` together. **You should not
+    initialize this class on your own.** Instead, it will be initialized by one
+    of the service objects above.
+
+    :param app: An Flask application object to tie this extension to.
+    :param base_url: A base URL value which, if provided, will be joined
+        with the URL passed to requests made on this object.
+    '''
     def __init__(self, app, base_url):
         self.app = app
         if app is not None:
@@ -114,11 +154,24 @@ class RauthServiceMixin(object):
         self.tokengetter_f = None
 
     def init_app(self, app):
+        '''
+        Initializes the application with this object as an extension.
+
+        This simply ensures that there are `config` entries for keys generated
+        by :func:`_consumer_key_config` and :func:`_consumer_secret_config`,
+        i.e. ``(NAME)_CONSUMER_KEY`` and ``(NAME)_CONSUMER_SECRET``.
+
+        :param app: A Flask application object.
+        '''
         # the name attribute will be set by a rauth service
         app.config.setdefault(self._consumer_key_config())
         app.config.setdefault(self._consumer_secret_config())
 
     def tokengetter(self, f):
+        '''
+        The tokengetter decorator used to provide a function that will return
+        the required token before making a request.
+        '''
         self.tokengetter_f = f
         return f
 
@@ -133,6 +186,18 @@ class RauthServiceMixin(object):
 
     @property
     def consumer_key(self):
+        '''
+        Returns the consumer_key for this object. The following method is used
+        to determine what the consumer_key is:
+
+        1. A `static_consumer_key`, set by passing a `consumer_key` to the
+            constructor.
+        2. The `consumer_key` set in the config of an app passed to the
+            constructor. The application config key is based on the name
+            passed to the constructor. See :func:`init_app` for more
+            information.
+        3. The `consumer_key` set in the config of the Flask `current_app`.
+        '''
         if self.static_consumer_key is not None:
             # if a consumer key was provided in the constructor, default to that
             return self.static_consumer_key
@@ -149,6 +214,10 @@ class RauthServiceMixin(object):
 
     @property
     def consumer_secret(self):
+        '''
+        Returns the consumer_secret for this object. A method analogous to that
+        of `consumer_key` is used to find the value.
+        '''
         if self.static_consumer_secret is not None:
             # if a consumer secret was provided in the constructor, default to that
             return self.static_consumer_secret
@@ -170,20 +239,54 @@ class RauthServiceMixin(object):
         return '%s_CONSUMER_SECRET' % (self.name.upper(),)
 
 class RauthOAuth2(OAuth2Service, RauthServiceMixin):
+    '''
+    Encapsulates OAuth 2.0 interaction to be easily integrated with Flask.
+
+    This class inherits :class:`rauth.service.OAuth2Service` and
+    :class:`RauthServiceMixin`.
+
+    :param app: See :class:`RauthServiceMixin`.
+    :param base_url: See :class:`RauthServiceMixin`.
+    :param consumer_key: A static consumer key to use with this service.
+        Supplying this argument will mean any consumer keys found in Flask
+        application config will be ignored.
+    :param consumer_secret: A static consumer secret to use with this service.
+        Supplying this argument will mean any consumer secrets found in Flask
+        application config will be ignored.
+    :param kwargs: Any arguments that can be passed to
+        :class:`rauth.OAuth2Service`.
+    '''
     def __init__(self, app=None, base_url=None, consumer_key=None, consumer_secret=None, **kwargs):
         OAuth2Service.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
         RauthServiceMixin.__init__(self, app=app, base_url=base_url)
 
-    def authorize(self, **authorize_params):
-        # OAuth 2.0 requires a redirect_uri value
-        assert 'redirect_uri' in authorize_params, 'The "redirect_uri" must be provided when generating the authorize URL'
+    def authorize(self, redirect_uri, **authorize_params):
+        '''
+        Begins the OAuth 2.0 authorization process for this service.
 
+        :param redirect_uri: The **required** absolute URL that will be
+            redirected to by the OAuth 2.0 endpoint after authorization is
+            complete.
+        :param authorize_params: Query parameters to be passed to authorization,
+            prompt, addition to the `redirect_uri`. One common example is
+            `scope`.
+        '''
         # save the redirect_uri in the session
-        session[self._session_key('redirect_uri')] = authorize_params['redirect_uri']
+        session[self._session_key('redirect_uri')] = redirect_uri
 
-        return redirect(self.get_authorize_url(**authorize_params))
+        return redirect(self.get_authorize_url(redirect_uri=redirect_uri, **authorize_params))
 
     def authorized_handler(self, f):
+        '''
+        The decorator to assign a function that will be called after
+        authorization is complete.
+
+        It should be a route that takes two parameters: `response` and
+        `access_token`.
+
+        If `response` is ``access_denied``, then the user denied access to
+            his/her information.
+        '''
         @wraps(f)
         def decorated(*args, **kwargs):
             resp = access_token = None
@@ -206,6 +309,24 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
         return decorated
 
     def request(self, method, url, access_token=None, **kwargs):
+        '''
+        Make a request using an `access_token` obtained via the
+            :func:`authorized_handler`.
+
+        If no access_token is provided and a
+        :func:`RauthServiceMixin.tokengetter` **was** provided, the
+        :func:`RauthServiceMixin.tokengetter` will be called.
+
+        :param method: Same as :func:`rauth.OAuth2Service.request`.
+        :param url: Same as :func:`rauth.OAuth2Service.request`, except when a
+            `base_url` was provided to the constructor, in which case the URL
+            should be any valid endpoint after being :func:`urljoin` ed with
+            the `base_url`.
+        :param access_token: The `access_token` required to make requests
+            against this service.
+        :param kwargs: Any `kwargs` that can be passed to
+            :func:`OAuth2Service.request`.
+        '''
         url = self._expand_url(url)
 
         if access_token is None and self.tokengetter_f is not None:
@@ -222,16 +343,21 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
         return RauthResponse(OAuth2Service.request(self, method, url, **kwargs))
 
 class RauthOAuth1(OAuth1Service, RauthServiceMixin):
+    '''
+    Encapsulates OAuth 1.0a interaction to be easily integrated with Flask.
+
+    This class inherits :class:`rauth.service.OAuth1Service` and
+    :class:`RauthServiceMixin`.
+
+    See :class:`RauthOAuth2` for analogous details.
+    '''
     def __init__(self, app=None, base_url=None, consumer_key=None, consumer_secret=None, **kwargs):
         OAuth1Service.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
         RauthServiceMixin.__init__(self, app=app, base_url=base_url)
 
-    def authorize(self, **request_params):
-        # OAuth 1.0/a web authentication requires a oauth_callback value
-        assert 'oauth_callback' in request_params, 'The "oauth_callback" must be provided when generating the authorize URL'
-
+    def authorize(self, oauth_callback=None, **request_params):
         # fetch the request_token (token and secret 2-tuple) and convert it to a dict
-        request_token = self.get_request_token(oauth_callback=request_params['oauth_callback'])
+        request_token = self.get_request_token(oauth_callback=oauth_callback)
         request_token = {'request_token': request_token[0], 'request_token_secret': request_token[1]}
 
         # save the request_token in the session
@@ -241,6 +367,15 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
         return redirect(self.get_authorize_url(request_token['request_token']))
 
     def authorized_handler(self, f):
+        '''
+        The handler should expect two arguments: `response` and `oauth_token`.
+
+        If `response` is ``None`` then the user *most-likely* denied access
+            to his/her information. Since OAuth 1.0a does not specify a
+            standard query parameter to specify that the user denied the
+            authorization, you will need to figure out how the endpoint that
+            your are interacting with delineates this edge-case.
+        '''
         @wraps(f)
         def decorated(*args, **kwargs):
             resp = oauth_token = None
@@ -254,6 +389,10 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
         return decorated
 
     def request(self, method, url, oauth_token=None, **kwargs):
+        '''
+        Make a request using an `oauth_token` obtained via the
+            :func:`authorized_handler`.
+        '''
         url = self._expand_url(url)
 
         if oauth_token is None and self.tokengetter_f is not None:
@@ -267,6 +406,14 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
         return RauthResponse(OAuth1Service.request(self, method, url, access_token=oauth_token, access_token_secret=oauth_token_secret, **kwargs))
 
 class RauthOfly(OflyService, RauthServiceMixin):
+    '''
+    Encapsulates Ofly interaction to be easily integrated with Flask.
+
+    This class inherits :class:`rauth.service.OflyService` and
+    :class:`RauthServiceMixin`.
+
+    See :class:`RauthOAuth2` for analogous details.
+    '''
     def __init__(self, app=None, base_url=None, consumer_key=None, consumer_secret=None, **kwargs):
         OflyService.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
         RauthServiceMixin.__init__(self, app=app, base_url=base_url)
@@ -279,6 +426,12 @@ class RauthOfly(OflyService, RauthServiceMixin):
         return redirect(self.get_authorize_url(**authorize_params))
 
     def authorized_handler(self, f):
+        '''
+        The handler should expect two arguments: `response` and `oflyUserid`.
+
+        If `response` is ``access_denied``, then the user denied access to
+            his/her information.
+        '''
         @wraps(f)
         def decorated(*args, **kwargs):
             resp = oflyUserid = None
@@ -298,6 +451,10 @@ class RauthOfly(OflyService, RauthServiceMixin):
         return decorated
 
     def request(self, method, url, oflyUserid=None, **kwargs):
+        '''
+        Make a request using an `oflyUserid` obtained via the
+            :func:`authorized_handler`.
+        '''
         url = self._expand_url(url)
 
         if oflyUserid is None and self.tokengetter_f is not None:
