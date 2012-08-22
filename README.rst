@@ -11,6 +11,16 @@ Flask-Rauth is a fork of Armin Ronacher's `Flask-OAuth`__.
 
 __ https://github.com/mitsuhiko/flask-oauth
 
+Documentation
+~~~~~~~~~~~~~
+
+http://flask-rauth.readthedocs.org/en/latest/
+
+Documentation hosting is provided by `Read the Docs
+<http://readthedocs.org/>`_.
+
+**Note:** the documentation is not yet complete. I'm working on it!
+
 Current Status
 ~~~~~~~~~~~~~~
 
