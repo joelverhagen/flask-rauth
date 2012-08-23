@@ -478,9 +478,6 @@ class RauthOfly(OflyService, RauthServiceMixin):
                     'oflyUserEmail': request.args.get('oflyUserEmail')
                 }
 
-                if resp.status != 200:
-                    raise RauthException('An error occurred during Ofly authorization', resp)
-
                 oflyUserid = request.args['oflyUserid']
 
             return f(*((resp, oflyUserid) + args), **kwargs)
