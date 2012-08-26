@@ -97,7 +97,7 @@ OAuth 2.0 Note
 
 Most OAuth 2.0 web services not only require you to specify a name,
 description, etc. to get a consumer key and consumer secret, but they
-also require you to specify one or more static `redirect_uri` values. These
+also require you to specify one or more static ``redirect_uri`` values. These
 values form a whitelist of URLs that a user can be redirected to after
 authentication. The value you set should match the :ref:`callback URL
 <callback-label>`.
@@ -140,8 +140,8 @@ Initialize a `RauthOAuth2`_ object.
         access_token_url='https://github.com/login/oauth/access_token'
     )
 
-The `authorize_url` and `access_token_url` parameters are specific to the 
-endpoint you are working with.
+The `authorize_url` and `access_token_url` parameters are
+specific to the endpoint you are working with.
 
 See `Both Protocols`_ for information about the other keys.
 
@@ -160,9 +160,9 @@ Initialize a `RauthOAuth1`_ object:
         access_token_url='https://api.twitter.com/oauth/access_token'
     )
 
-The `request_token_url`, `authorize_url`, and `access_token_url` parameters are
-specific to the endpoint you are working with. Notice the additional
-`request_token_url` parameter, compared to `OAuth 2.0`_.
+The `request_token_url`, `authorize_url`, and `access_token_url`
+parameters are specific to the endpoint you are working with. Notice the
+additional `request_token_url` parameter, compared to `OAuth 2.0`_.
 
 See `Both Protocols`_ for information about the other keys.
 
@@ -170,10 +170,10 @@ Both Protocols
 ''''''''''''''
 
 The `base_url` is **optional**, but can be provided so that
-:ref:`making requests <making-request-label>` is a bit easier. The `name`
-parameter is very important! This value will be used to determine the Flask
-configuration keys that contain the associated **consumer key** and **private
-key**.
+:ref:`making requests <making-request-label>` is a bit easier. The
+`name` parameter is very important! This value will be used to
+determine the Flask configuration keys that contain the associated **consumer
+key** and **private key**.
 
 Set the consumer key and secret
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -192,7 +192,7 @@ in one place. One use-case is if you would like a seperate consumer key and
 secret for a development vs. testing vs. production environment. 
 
 .. code-block:: python
-    :emphasize-lines: 6-7,9-10
+    :emphasize-lines: 6-7, 9-10
 
     # create your application object
     # ...
@@ -222,11 +222,11 @@ as an extension with your app object, like this:
     # github is the RauthOAuth2 object, from above
     github.init_app(app)
 
-Or, you can simply let Flask-Rauth use Flask's super-useful `current_app` to
+Or, you can simply let Flask-Rauth use Flask's super-useful ``current_app`` to
 get the currently active Flask application object, and look for the consumer
 key and secret in its configuration.
 
-Whether or not you call ``init_app``, the `name` parameter you pass to the
+Whether or not you call :func:`init_app`, the `name` parameter you pass to the
 service object's constructor is extremely important. When Flask-Rauth is
 looking for a consumer key or consumer secret, the name is uppercased (using
 ``name.upper()``) and appended with ``_CONSUMER_KEY`` and ``_CONSUMER_SECRET``,
@@ -239,6 +239,7 @@ Alternatively, you can pass the consumer key and consumer secret when
 initializing your service object.
 
 .. code-block:: python
+    :emphasize-lines: 6-7, 16-17
 
     github = RauthOAuth2(
         name='github',
@@ -264,19 +265,89 @@ keys for different running environments. However, :ref:`as mentioned above
 <oauth2-note>`, OAuth 2.0 requires you to predefine an absolute URL of where
 users can be redirected after authentication. If you have a test environment
 and production environment with different callback URLs (i.e.
-``http://test.example.com/github/authorized`` and
-``http://www.example.com/github/authorized``), you may be forced to use a
+`http://test.example.com/github/authorized` and
+`http://www.example.com/github/authorized`), you may be forced to use a
 different consumer key and secret for each environment.
 
 .. _callback-label:
 
-Set a callback URL
-~~~~~~~~~~~~~~~~~~
+Redirect the user
+~~~~~~~~~~~~~~~~~
+
+Now that you've initialized everything, it's time to hook the service object
+up. Both OAuth 2.0 and OAuth 1.0a have a step where the user is redirected from
+the consumer's website (your Flask web app) to the external web service (i.e.
+GitHub, Twitter, etc) for user authentication. Not only does the user log in on
+the external website, but they also choose whether your app is allowed to
+access their information.
+
+To kick off the authentication process, call the :func:`authorize` method on
+your service object, which will return a Flask `redirect` response.
+
+.. code-block:: python
+    :emphasize-lines: 9
+
+    # initialize the Flask application object
+    # ...
+
+    # initialize the GitHub OAuth 2.0 service
+    # ...
+
+    @app.route('/redirect')
+    def redirect():
+        return github.authorize(callback=url_for('authorized', _external=True))
+
+    @app.route('/authorized')
+    @github.authorized_handler
+    def authorized(...):
+        # handle authorization
 
 .. _making-request-label:
 
-Making requests
-~~~~~~~~~~~~~~~
+For both OAuth 1.0a and 2.0, the `callback` parameter is required. This tells
+OAuth server where to redirect the user after they have authenticated. If you
+use :func:`url_for` to generate the URL, make sure to generate an absolute URL
+using ``_external=True``.
+
+For OAuth 2.0, this `callback` parameter is mapped to the `redirect_uri` passed
+to the the external web service.
+
+Handle the authorization response
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+So far, everything is (hopefully) pretty straightforward. When the user comes
+back from the external web service (after authorization), things get a bit more
+complex.
+
+In the previous step, you set the `callback` parameter for :func:`authorize` to
+be the absolute URL to a another route (in the example above, the route was
+``/authorized``). This route will be hit by the user after authentication.
+
+This is a special route marked by the :func:`authorized_handler` decorator.
+This route will recieve two parameters: a special `RauthResponse` object and
+the token required for making requests on behalf of the authenticated user.
+
+When you decleare your authorized handler, the top of it should look a lot like
+this:
+
+.. code-block:: python
+
+    @app.route('/authorized')
+    @github.authorized_handler
+    def authorized(response, access_token):
+        # ...
+
+If the user denies
+''''''''''''''''''
+
+If you've worked with OAuth before, you'll know that there's the possibility
+that the user denies access to their information. This case is clearly defined
+in the OAuth 2.0 spec. The `redirect_uri` will have the query param
+``error=access_denied`` added to it. OAuth 1.0a, however, does not define this
+case as well. Naturally, everyone does it differently. In fact, some 
+
+Make a request
+~~~~~~~~~~~~~~
 
 Full Examples
 -------------
@@ -317,18 +388,18 @@ RauthOfly
 .. autoclass:: RauthOfly
    :members:
 
-Helper Classes
+Helpers
 ~~~~~~~~~~~~~~
 
 .. autoclass:: RauthResponse
    :members:
 
+Internals
+~~~~~~~~~
+
 .. autoclass:: RauthServiceMixin
    :members:
    :exclude-members: consumer_secret_setter, consumer_key_setter
-
-Exceptions and Functions
-~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. autoexception:: RauthException
 
