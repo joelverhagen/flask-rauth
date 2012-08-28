@@ -126,6 +126,8 @@ Initialize the service object
 To get started, you will need to initialize a Flask-Rauth 
 :ref:`service object <services-label>`.
 
+.. _oauth2-init:
+
 OAuth 2.0
 '''''''''
 
@@ -162,7 +164,8 @@ Initialize a `RauthOAuth1`_ object:
 
 The `request_token_url`, `authorize_url`, and `access_token_url`
 parameters are specific to the endpoint you are working with. Notice the
-additional `request_token_url` parameter, compared to `OAuth 2.0`_.
+additional `request_token_url` parameter, compared to :ref:`OAuth 2.0
+<oauth2-init>`.
 
 See `Both Protocols`_ for information about the other keys.
 
@@ -324,8 +327,11 @@ be the absolute URL to a another route (in the example above, the route was
 ``/authorized``). This route will be hit by the user after authentication.
 
 This is a special route marked by the :func:`authorized_handler` decorator.
-This route will recieve two parameters: a special `RauthResponse` object and
-the token required for making requests on behalf of the authenticated user.
+This route will recieve two parameters upon successful authorization:
+a special `RauthResponse` object and the token required for making requests on
+behalf of the authenticated user. If the first parameter is `None` or 
+``access_denied``, the authorization step failed (see `Handle if the user
+denies`_).
 
 When you decleare your authorized handler, the top of it should look a lot like
 this:
@@ -337,14 +343,150 @@ this:
     def authorized(response, access_token):
         # ...
 
-If the user denies
-''''''''''''''''''
+As you can see, you're expecting the two parameters that are mentioned above.
+
+OAuth 2.0
+'''''''''
+
+The second parameter will be an `access_token`. This is a single secret string
+used as a password, specific to your application, to make requests on behalf of
+your user. The string can have any length, so if you're storing it in a
+database, use a `Text` data type (unless you're very sure of the size, in which
+case you can get by with a CHAR/VARCHAR).
+
+If you're working with SQLAlchemy and declarative models (i.e.
+`Flask-SQLAlchemy`__), you're code might look a bit like this:
+
+__ http://packages.python.org/Flask-SQLAlchemy/
+
+.. code-block:: python
+
+    @app.route('/authorized')
+    @github.authorized_handler
+    def authorized(resp, access_token):
+        # save the access token to the database
+        current_user.access_token = access_token
+        db.session.commit()
+
+        return redirect(url_for('index'))
+
+OAuth 1.0a
+''''''''''
+
+The second parameter will be an `oauth_token`. This is different from OAuth 2.0
+because the token is actually a 2-tuple of an `oauth_token` and
+`oauth_token_secret`. Both of these are strings of any length and BOTH are used
+when making external web service calls on behalf of the user.
+
+If you're working with SQLAlchemy and declarative models (i.e.
+`Flask-SQLAlchemy`__), you're code might look a bit like this:
+
+__ http://packages.python.org/Flask-SQLAlchemy/
+
+.. code-block:: python
+
+    @app.route('/authorized')
+    @linkedin.authorized_handler
+    def authorized(resp, oauth_token):
+        # save the OAuth token to the database
+        current_user.oauth_token = oauth_token[0]
+        current_user.oauth_token_secret = oauth_token[1]
+        db.session.commit()
+
+        return redirect(url_for('index'))
+
+Handle if the user denies
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If you've worked with OAuth before, you'll know that there's the possibility
-that the user denies access to their information. This case is clearly defined
-in the OAuth 2.0 spec. The `redirect_uri` will have the query param
-``error=access_denied`` added to it. OAuth 1.0a, however, does not define this
-case as well. Naturally, everyone does it differently. In fact, some 
+that the user denies access to their information. 
+
+OAuth 2.0
+'''''''''
+
+This case is clearly defined in the OAuth 2.0 spec. The `redirect_uri` will
+have the query param ``error=access_denied`` added to it. 
+
+With Flask-Rauth, all you need to do is check whether the first argument in
+your `authorized_handler` is equal to the string ``access_denied``.
+
+.. code-block:: python
+    :emphasize-lines: 4-5
+
+    @app.route('/authorized')
+    @github.authorized_handler
+    def authorized(resp, access_token):
+        if resp == 'access_denied':
+            return 'You denied access, meanie.'
+
+        flash('You have been logged in to GitHub successfully.')
+        session['access_token'] = access_token
+
+        return redirect(url_for('index'))
+
+OAuth 1.0a
+''''''''''
+
+OAuth 1.0a, however, does not clearly define what the server should do if a
+user denies the consumer application's access to his or her information.
+Naturally, there is no common consensus in practice and many web APIs do it
+differently.
+
+Most OAuth 1.0a-enabled web services either do not have a `Deny` button at all
+(assuming the user will simply close the window or tab, thus cutting the OAuth
+process short) or have the `Deny` button redirect the user to the home page
+of the external web service. This makes life difficult for us consumers!
+
+Since the functionality isn't standard, you pretty much have to try it for each
+external web service that you want to work with. Whenever the first argument to
+your authorized handler is `None`, then we pretty much have to assume that the
+user denied access.
+
+For example, LinkedIn's `new authorization flow`__ does not indicate at all
+that the user denied access. They just redirect back to your `callback`
+without an `oauth_verifier` (which is a token that Flask-Rauth uses to fetch
+the OAuth token which can be used to make calls on behalf of the user).
+
+__ https://developer.linkedin.com/blog/making-it-easier-you-develop-linkedin
+
+.. code-block:: python
+    :emphasize-lines: 5
+
+    @app.route('/authorized')
+    @linkedin.authorized_handler
+    def authorized(resp, oauth_token):
+        if resp is None:
+            return 'You denied access, meanie.'
+
+        flash('You have been logged in to Twitter successfully.')
+        session['oauth_token'] = oauth_token
+
+        return redirect(url_for('index'))
+
+For every OAuth 1.0a endpoint that you hook up to, I *highly* recommend that
+you check the query parameters after you deny access to see if there is any
+explicit indication of the deny.
+
+In Twitter's case, if the user denies access to their Twitter account, then
+a "denied" query parameter will be tacked on the end of your callback. Thanks
+Twitter!
+
+.. code-block:: python
+    :emphasize-lines: 5
+
+    @app.route('/authorized')
+    @twitter.authorized_handler
+    def authorized(resp, oauth_token):
+        # check for the Twitter-specific "access_denied" indicator
+        if resp is None and 'denied' in request.args:
+            return 'You denied access, meanie.'
+        elif resp is None:
+            return 'Hey developer, something unexpected happened.'
+
+        flash('You have been logged in to Twitter successfully.')
+        session['oauth_token'] = oauth_token
+
+        return redirect(url_for('index'))
 
 Make a request
 ~~~~~~~~~~~~~~
