@@ -14,19 +14,17 @@ __ https://github.com/mitsuhiko/flask-oauth
 Documentation
 ~~~~~~~~~~~~~
 
+Current documentation is available at the following URL:
+
 http://flask-rauth.readthedocs.org/en/latest/
 
 Documentation hosting is provided by `Read the Docs
 <http://readthedocs.org/>`_.
 
-**Note:** the documentation is not yet complete. I'm working on it!
-
-Current Status
+Examples
 ~~~~~~~~~~~~~~
 
-**The code is usable.**
+Some people learn better by example, that's why I've provided the following 
+examples for your edification:
 
-The code and examples are in working order (use HEAD). Since the documentation
-is still in progress, festidiously study the `examples`__ to get started.
-
-__ https://github.com/joelverhagen/flask-rauth/tree/master/example
+https://github.com/joelverhagen/flask-rauth/tree/master/example

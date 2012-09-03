@@ -31,7 +31,7 @@ allow users on your Flask website to sign in to external web services (i.e. the
 Once a user has authenticated with the external service, your server back-end
 execute calls on the external API on behalf of the user via a secure token
 process. This means that your application never has to deal with securing and
-transfering Twitter password, for example. *This is a good thing!*
+transferring Twitter password, for example. *This is a good thing!*
 
 As mentioned before, Flask-Rauth supports the following protocols as a
 consumer:
@@ -45,8 +45,7 @@ Tutorial
 --------
 
 This tutorial should be able to help you get started with using OAuth 2.0 or
-OAuth 1.0a with your Flask application. If you want to use Ofly (Shutterfly),
-then take a look at :ref:`the example <ofly-example-label>` below.
+OAuth 1.0a with your Flask application.
 
 Sign up with the external service
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -70,7 +69,7 @@ To get the consumer key and consumer secret, you normally need to create an
 "app" entry using some developer interface. This normally includes providing
 a name, description, website and other fluffy information so that when your
 users authenticate into the external web service they see a message like
-"Joel's Awesome Flask App wants accesss to your Twitter information."
+"Joel's Awesome Flask App wants access to your Twitter information."
 
 For the lazy, here's a list of a few OAuth web services and their
 interfaces to get a consumer key and consumer secret.
@@ -98,7 +97,7 @@ OAuth 2.0 Note
 Most OAuth 2.0 web services not only require you to specify a name,
 description, etc. to get a consumer key and consumer secret, but they
 also require you to specify one or more static ``redirect_uri`` values. These
-values form a whitelist of URLs that a user can be redirected to after
+values form a white list of URLs that a user can be redirected to after
 authentication. The value you set should match the :ref:`callback URL
 <callback-label>`.
 
@@ -191,7 +190,7 @@ In your app config
 **This is the recommended method**, since it works very well when using an
 application factory to generate your Flask application object or when you may
 have multiple sets of consumer keys and secrets and you want to keep them all
-in one place. One use-case is if you would like a seperate consumer key and
+in one place. One use-case is if you would like a separate consumer key and
 secret for a development vs. testing vs. production environment. 
 
 .. code-block:: python
@@ -231,7 +230,7 @@ key and secret in its configuration.
 
 Whether or not you call :func:`init_app`, the `name` parameter you pass to the
 service object's constructor is extremely important. When Flask-Rauth is
-looking for a consumer key or consumer secret, the name is uppercased (using
+looking for a consumer key or consumer secret, the name is upper cased (using
 ``name.upper()``) and appended with ``_CONSUMER_KEY`` and ``_CONSUMER_SECRET``,
 respectively.
 
@@ -327,13 +326,13 @@ be the absolute URL to a another route (in the example above, the route was
 ``/authorized``). This route will be hit by the user after authentication.
 
 This is a special route marked by the :func:`authorized_handler` decorator.
-This route will recieve two parameters upon successful authorization:
+This route will receive two parameters upon successful authorization:
 a special `RauthResponse` object and the token required for making requests on
 behalf of the authenticated user. If the first parameter is `None` or 
 ``access_denied``, the authorization step failed (see `Handle if the user
 denies`_).
 
-When you decleare your authorized handler, the top of it should look a lot like
+When you declare your authorized handler, the top of it should look a lot like
 this:
 
 .. code-block:: python
@@ -405,7 +404,7 @@ OAuth 2.0
 '''''''''
 
 This case is clearly defined in the OAuth 2.0 spec. The `redirect_uri` will
-have the query param ``error=access_denied`` added to it. 
+have the query parameter ``error=access_denied`` added to it. 
 
 With Flask-Rauth, all you need to do is check whether the first argument in
 your `authorized_handler` is equal to the string ``access_denied``.
@@ -491,19 +490,81 @@ Twitter!
 Make a request
 ~~~~~~~~~~~~~~
 
-Full Examples
--------------
+Now that you have a valid token, you can make requests on behalf of your user.
+All you need to do is call the :func:`get`, :func:`post`, :func:`put`, or
+:func:`delete` functions on your service object. The optional arguments for
+each request are outlined in the `Rauth documention`__.
 
-OAuth 2.0 Example
-~~~~~~~~~~~~~~~~~
+__ http://rauth.readthedocs.org/en/latest/#rauth.service.OAuth2Service.request
 
-OAuth 1.0a Example
-~~~~~~~~~~~~~~~~~~
+Every API call requires that you provide the token that you aquired during user
+authorization. There are two ways to do this.
 
-.. _ofly-example-label:
+Explicitly, by passing the token
+''''''''''''''''''''''''''''''''
 
-Ofly Example
-~~~~~~~~~~~~
+You can pass the token as a keyword argument to one of the aforementioned
+request functions. When using OAuth 2.0, use the keyword `access_token`.
+
+.. code-block:: python
+
+    # github is an OAuth 2.0 service object
+    r = github.get('user', access_token=my_access_token)
+
+When using OAuth 1.0a, use the keyword `oauth_token`.
+
+.. code-block:: python
+
+    # twitter is an OAuth 1.0a service object
+    r = twitter.get('account/verify_credentials.json', oauth_token=token)
+
+This method of passing a token is most useful when you have to use multiple
+tokens at the same time (i.e. you are fetching repository information for more
+than one authorized GitHub user in a single request).
+
+Implicitly, by defining a token getter function
+'''''''''''''''''''''''''''''''''''''''''''''''
+
+If you would like to tightly associate a specific token source (i.e. database,
+session, cookies) with each user, declaring a token getter is probably the
+cleanest solution.
+
+When using OAuth 2.0, return the `access_token` recieved after authorization.
+
+.. code-block:: python
+
+    # github is an OAuth 2.0 service object
+    @github.tokengetter
+    def get_github_token():
+        return session.get('access_token')
+
+When using OAuth 1.0a, return the 2-tuple `oauth_token` recieved after
+authorization.
+
+.. code-block:: python
+
+    # twitter is an OAuth 1.0a service object
+    @twitter.tokengetter
+    def get_twitter_token():
+        # g is Flask's global object
+        user = g.user
+        if user is not None:
+            return user.oauth_token
+
+If no access token is available, just return `None`.
+
+After the request completes, a :ref:`RauthResponse <response-label>` object is
+returned.
+
+Examples
+--------
+
+Make sure to check out the `example` directory if you're still confused about
+the API.
+
+`Examples`__, easily viewable in the GitHub source browser.
+
+__ https://github.com/joelverhagen/flask-rauth/tree/master/example
 
 API Reference
 -------------
@@ -532,6 +593,8 @@ RauthOfly
 
 Helpers
 ~~~~~~~~~~~~~~
+
+.. _response-label:
 
 .. autoclass:: RauthResponse
    :members:
