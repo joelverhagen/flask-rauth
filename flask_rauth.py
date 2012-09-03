@@ -425,6 +425,8 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
         # take apart the 2-tuple
         if oauth_token is not None:
             oauth_token, oauth_token_secret = oauth_token
+        else:
+            oauth_token_secret = None
 
         # call the parent implementation
         return RauthResponse(OAuth1Service.request(self, method, url, access_token=oauth_token, access_token_secret=oauth_token_secret, **kwargs))
