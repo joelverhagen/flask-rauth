@@ -296,24 +296,18 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
         @wraps(f)
         def decorated(*args, **kwargs):
             resp = access_token = None
-            if 'error' in request.args:
-                if  request.args['error'] == ACCESS_DENIED:
-                    resp = ACCESS_DENIED
-                else:
-                    raise RauthException('An unexpected error occurred during authorization: error: "%s", error_description: "%s", error_uri: "%s"' % (request.args.get('error'), request.args.get('error_description'), request.args.get('error_uri')))
-            elif 'error' not in request.args and 'code' not in request.args:
-                # if this happens, there's probably a problem with the provider
-                raise RauthException('No error or code provided in the authorization grant')
-            else:
+            if 'error' in request.args and request.args['error'] == ACCESS_DENIED:
+                resp = ACCESS_DENIED
+            elif 'code' in request.args:
                 resp = RauthResponse(self.get_access_token(data={
                     'code': request.args['code'],
                     'redirect_uri': session.pop(self._session_key('redirect_uri'), None)
                 }))
 
                 if resp.status != 200:
-                    raise RauthException('An error occurred during OAuth 2.0 authorization', resp)
+                    raise RauthException('An error occurred while getting the OAuth 2.0 access_token', resp)
 
-                access_token = resp.content['access_token']
+                access_token = resp.content.get('access_token')
 
             return f(*((resp, access_token) + args), **kwargs)
         return decorated
@@ -407,7 +401,7 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
                 if resp.status != 200:
                     raise RauthException('An error occurred during OAuth 1.0a authorization', resp)
 
-                oauth_token = (resp.content['oauth_token'], resp.content['oauth_token_secret'])
+                oauth_token = (resp.content.get('oauth_token'), resp.content.get('oauth_token_secret'))
 
             return f(*((resp, oauth_token) + args), **kwargs)
         return decorated
@@ -469,18 +463,17 @@ class RauthOfly(OflyService, RauthServiceMixin):
         @wraps(f)
         def decorated(*args, **kwargs):
             resp = oflyUserid = None
-            if 'oflyUserid' not in request.args:
-                raise RauthException('No oflyUserid provided in the authorization grant')
-            elif request.args['oflyUserid'] == 'no-grant':
-                resp = ACCESS_DENIED
-            else:
-                resp = {
-                    'oflyUserid': request.args.get('oflyUserid'),
-                    'oflyAppId': request.args.get('oflyAppId'),
-                    'oflyUserEmail': request.args.get('oflyUserEmail')
-                }
+            if 'oflyUserid' in request.args:
+                if request.args['oflyUserid'] == 'no-grant':
+                    resp = ACCESS_DENIED
+                else:
+                    resp = {
+                        'oflyUserid': request.args['oflyUserid'],
+                        'oflyAppId': request.args.get('oflyAppId'),
+                        'oflyUserEmail': request.args.get('oflyUserEmail')
+                    }
 
-                oflyUserid = request.args['oflyUserid']
+                    oflyUserid = request.args['oflyUserid']
 
             return f(*((resp, oflyUserid) + args), **kwargs)
         return decorated
