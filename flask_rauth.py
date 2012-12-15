@@ -282,7 +282,7 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
 
         return redirect(self.get_authorize_url(redirect_uri=callback, **authorize_params))
 
-    def authorized_handler(self, f):
+    def authorized_handler(self, method='GET'):
         '''
         The decorator to assign a function that will be called after
         authorization is complete.
@@ -293,24 +293,28 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
         If `response` is ``access_denied``, then the user denied access to
             his/her information.
         '''
-        @wraps(f)
-        def decorated(*args, **kwargs):
-            resp = access_token = None
-            if 'error' in request.args and request.args['error'] == ACCESS_DENIED:
-                resp = ACCESS_DENIED
-            elif 'code' in request.args:
-                resp = RauthResponse(self.get_access_token(data={
-                    'code': request.args['code'],
-                    'redirect_uri': session.pop(self._session_key('redirect_uri'), None)
-                }))
+        def create_authorized_handler(f):
+            @wraps(f)
+            def decorated(*args, **kwargs):
+                resp = access_token = None
+                if 'error' in request.args and request.args['error'] == ACCESS_DENIED:
+                    resp = ACCESS_DENIED
+                elif 'code' in request.args:
+                    resp = RauthResponse(self.get_access_token(method = method,
+                        data={'code': request.args['code'],
+                              'redirect_uri': 
+                                  session.pop(self._session_key('redirect_uri'),
+                                    None)
+                    }))
 
-                if resp.status != 200:
-                    raise RauthException('An error occurred while getting the OAuth 2.0 access_token', resp)
+                    if resp.status != 200:
+                        raise RauthException('An error occurred while getting the OAuth 2.0 access_token', resp)
 
-                access_token = resp.content.get('access_token')
+                    access_token = resp.content.get('access_token')
 
-            return f(*((resp, access_token) + args), **kwargs)
-        return decorated
+                return f(*((resp, access_token) + args), **kwargs)
+            return decorated
+        return create_authorized_handler
 
     def request(self, method, url, access_token=None, **kwargs):
         '''
@@ -455,30 +459,32 @@ class RauthOfly(OflyService, RauthServiceMixin):
         # pass the callback and any user-provided parameters
         return redirect(self.get_authorize_url(redirect_uri=callback, **authorize_params))
 
-    def authorized_handler(self, f):
+    def authorized_handler(self, method='GET'):
         '''
         The handler should expect two arguments: `response` and `oflyUserid`.
 
         If `response` is ``access_denied``, then the user denied access to
             his/her information.
         '''
-        @wraps(f)
-        def decorated(*args, **kwargs):
-            resp = oflyUserid = None
-            if 'oflyUserid' in request.args:
-                if request.args['oflyUserid'] == 'no-grant':
-                    resp = ACCESS_DENIED
-                else:
-                    resp = {
-                        'oflyUserid': request.args['oflyUserid'],
-                        'oflyAppId': request.args.get('oflyAppId'),
-                        'oflyUserEmail': request.args.get('oflyUserEmail')
-                    }
+        def create_authorized_handler(f):
+            @wraps(f)
+            def decorated(*args, **kwargs):
+                resp = oflyUserid = None
+                if 'oflyUserid' in request.args:
+                    if request.args['oflyUserid'] == 'no-grant':
+                        resp = ACCESS_DENIED
+                    else:
+                        resp = {
+                            'oflyUserid': request.args['oflyUserid'],
+                            'oflyAppId': request.args.get('oflyAppId'),
+                            'oflyUserEmail': request.args.get('oflyUserEmail')
+                        }
 
-                    oflyUserid = request.args['oflyUserid']
+                        oflyUserid = request.args['oflyUserid']
 
-            return f(*((resp, oflyUserid) + args), **kwargs)
-        return decorated
+                return f(*((resp, oflyUserid) + args), **kwargs)
+            return decorated
+        return create_authorized_handler
 
     def request(self, method, url, oflyUserid=None, **kwargs):
         '''
