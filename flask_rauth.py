@@ -11,7 +11,7 @@
     :license: BSD, see LICENSE for more details.
 '''
 from functools import wraps
-from urlparse import urljoin, urlparse
+from urlparse import urljoin
 from flask import request, session, redirect, current_app
 from werkzeug import parse_options_header
 from rauth.service import OAuth2Service, OAuth1Service, OflyService, Response, parse_utf8_qsl
@@ -182,11 +182,8 @@ class RauthServiceMixin(object):
         return f
 
     def _expand_url(self, url):
-        # make sure we are not passed an absolute URL
-        pieces = urlparse(url)
-
         # prepend the base base_url, if we have it
-        if self.base_url is not None and not pieces.scheme:
+        if self.base_url is not None:
             url = urljoin(self.base_url, url)
         return url
 
@@ -379,11 +376,11 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
 
         # save the request_token in the session
         session[self._session_key('request_token')] = request_token
-
+        
         # pass the token and any user-provided parameters
         return redirect(self.get_authorize_url(request_token['request_token']))
 
-    def authorized_handler(self, f):
+    def authorized_handler(self, method='GET'):
         '''
         The handler should expect two arguments: `response` and `oauth_token`.
 
@@ -393,21 +390,23 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
             authorization, you will need to figure out how the endpoint that
             your are interacting with delineates this edge-case.
         '''
-        @wraps(f)
-        def decorated(*args, **kwargs):
-            resp = oauth_token = None
-            if 'oauth_verifier' in request.args:
-                resp = RauthResponse(self.get_access_token(data={
-                    'oauth_verifier': request.args['oauth_verifier']
-                }, **session.pop(self._session_key('request_token'), {})))
+        def create_authorized_handler(f):
+            @wraps(f)
+            def decorated(*args, **kwargs):
+                resp = oauth_token = None
+                if 'oauth_verifier' in request.args:
+                    resp = RauthResponse(self.get_access_token(method = method,
+                        data={'oauth_verifier': request.args['oauth_verifier']},
+                        **session.pop(self._session_key('request_token'), {})))
 
-                if resp.status != 200:
-                    raise RauthException('An error occurred during OAuth 1.0a authorization', resp)
+                    if resp.status != 200:
+                        raise RauthException('An error occurred during OAuth 1.0a authorization', resp)
 
-                oauth_token = (resp.content.get('oauth_token'), resp.content.get('oauth_token_secret'))
+                    oauth_token = (resp.content.get('oauth_token'), resp.content.get('oauth_token_secret'))
 
-            return f(*((resp, oauth_token) + args), **kwargs)
-        return decorated
+                return f(*((resp, oauth_token) + args), **kwargs)
+            return decorated
+        return create_authorized_handler
 
     def request(self, method, url, oauth_token=None, **kwargs):
         '''
