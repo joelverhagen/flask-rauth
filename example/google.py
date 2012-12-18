@@ -41,7 +41,7 @@ def login():
 
 
 @app.route('/authorized')
-@google.authorized_handler
+@google.authorized_handler()
 def authorized(resp, access_token):
     if resp == 'access_denied':
         return 'You denied access, meanie. Click <a href="%s">here</a> to try again.' % (url_for('login'),)

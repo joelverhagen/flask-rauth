@@ -32,7 +32,7 @@ def login():
 
 
 @app.route('/login/authorized')
-@facebook.authorized_handler
+@facebook.authorized_handler()
 def authorized(resp, access_token):
     if resp == 'access_denied':
         return 'You denied access, meanie. Click <a href="%s">here</a> to try again.' % (url_for('login'),)

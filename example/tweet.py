@@ -162,7 +162,7 @@ def logout():
 
 
 @app.route('/authorized')
-@twitter.authorized_handler
+@twitter.authorized_handler()
 def authorized(resp, oauth_token):
     '''
     Called after authorization. After this function finished handling,
