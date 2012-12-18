@@ -300,7 +300,7 @@ your service object, which will return a Flask `redirect` response.
         return github.authorize(callback=url_for('authorized', _external=True))
 
     @app.route('/authorized')
-    @github.authorized_handler
+    @github.authorized_handler()
     def authorized(...):
         # handle authorization
 
@@ -338,11 +338,24 @@ this:
 .. code-block:: python
 
     @app.route('/authorized')
-    @github.authorized_handler
+    @github.authorized_handler()
     def authorized(response, access_token):
         # ...
 
 As you can see, you're expecting the two parameters that are mentioned above.
+
+Suppose your endpoint insists that a `GET` request must be issued when fetching
+the access token. Well, simply pass a `method` keyword argument to your 
+:func:`authorized_handler` decorator.
+
+.. code-block:: python
+
+    @app.route('/authorized')
+    @acme.authorized_handler(method='GET')
+    def authorized(response, access_token):
+        # ...
+
+By default, a `POST` request is used.
 
 OAuth 2.0
 '''''''''
@@ -361,7 +374,7 @@ __ http://packages.python.org/Flask-SQLAlchemy/
 .. code-block:: python
 
     @app.route('/authorized')
-    @github.authorized_handler
+    @github.authorized_handler()
     def authorized(resp, access_token):
         # save the access token to the database
         current_user.access_token = access_token
@@ -385,7 +398,7 @@ __ http://packages.python.org/Flask-SQLAlchemy/
 .. code-block:: python
 
     @app.route('/authorized')
-    @linkedin.authorized_handler
+    @linkedin.authorized_handler()
     def authorized(resp, oauth_token):
         # save the OAuth token to the database
         current_user.oauth_token = oauth_token[0]
@@ -413,7 +426,7 @@ your `authorized_handler` is equal to the string ``access_denied``.
     :emphasize-lines: 4-5
 
     @app.route('/authorized')
-    @github.authorized_handler
+    @github.authorized_handler()
     def authorized(resp, access_token):
         if resp == 'access_denied':
             return 'You denied access, meanie.'
@@ -452,7 +465,7 @@ __ https://developer.linkedin.com/blog/making-it-easier-you-develop-linkedin
     :emphasize-lines: 5
 
     @app.route('/authorized')
-    @linkedin.authorized_handler
+    @linkedin.authorized_handler()
     def authorized(resp, oauth_token):
         if resp is None:
             return 'You denied access, meanie.'
@@ -474,7 +487,7 @@ Twitter!
     :emphasize-lines: 5
 
     @app.route('/authorized')
-    @twitter.authorized_handler
+    @twitter.authorized_handler()
     def authorized(resp, oauth_token):
         # check for the Twitter-specific "access_denied" indicator
         if resp is None and 'denied' in request.args:

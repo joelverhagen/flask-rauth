@@ -285,7 +285,9 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
     def authorized_handler(self, method='POST'):
         '''
         The decorator to assign a function that will be called after
-        authorization is complete.
+        authorization is complete. By default, a `POST` request is used to
+        fetch the access token. If you need to send a `GET` request, use the
+        ``authorized_handler(method='GET')`` to do so.
 
         It should be a route that takes two parameters: `response` and
         `access_token`.
@@ -385,6 +387,9 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
     def authorized_handler(self, method='POST'):
         '''
         The handler should expect two arguments: `response` and `oauth_token`.
+        By default, a `POST` request is used to fetch the access token. If you
+        need to send a `GET` request, use the
+        ``authorized_handler(method='GET')`` to do so.
 
         If `response` is ``None`` then the user *most-likely* denied access
             to his/her information. Since OAuth 1.0a does not specify a
@@ -462,6 +467,7 @@ class RauthOfly(OflyService, RauthServiceMixin):
     def authorized_handler(self, method='POST'):
         '''
         The handler should expect two arguments: `response` and `oflyUserid`.
+        The `method` parameter is unused.
 
         If `response` is ``access_denied``, then the user denied access to
             his/her information.
