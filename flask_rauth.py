@@ -282,7 +282,7 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
 
         return redirect(self.get_authorize_url(redirect_uri=callback, **authorize_params))
 
-    def authorized_handler(self, method='GET'):
+    def authorized_handler(self, method='POST'):
         '''
         The decorator to assign a function that will be called after
         authorization is complete.
@@ -300,11 +300,9 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
                 if 'error' in request.args and request.args['error'] == ACCESS_DENIED:
                     resp = ACCESS_DENIED
                 elif 'code' in request.args:
-                    resp = RauthResponse(self.get_access_token(method = method,
-                        data={'code': request.args['code'],
-                              'redirect_uri': 
-                                  session.pop(self._session_key('redirect_uri'),
-                                    None)
+                    resp = RauthResponse(self.get_access_token(method=method, data={
+                        'code': request.args['code'],
+                        'redirect_uri': session.pop(self._session_key('redirect_uri'), None)
                     }))
 
                     if resp.status != 200:
@@ -384,7 +382,7 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
         # pass the token and any user-provided parameters
         return redirect(self.get_authorize_url(request_token['request_token']))
 
-    def authorized_handler(self, method='GET'):
+    def authorized_handler(self, method='POST'):
         '''
         The handler should expect two arguments: `response` and `oauth_token`.
 
@@ -399,9 +397,11 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
             def decorated(*args, **kwargs):
                 resp = oauth_token = None
                 if 'oauth_verifier' in request.args:
-                    resp = RauthResponse(self.get_access_token(method = method,
+                    resp = RauthResponse(self.get_access_token(
+                        method=method,
                         data={'oauth_verifier': request.args['oauth_verifier']},
-                        **session.pop(self._session_key('request_token'), {})))
+                        **session.pop(self._session_key('request_token'), {}))
+                    )
 
                     if resp.status != 200:
                         raise RauthException('An error occurred during OAuth 1.0a authorization', resp)
@@ -459,7 +459,7 @@ class RauthOfly(OflyService, RauthServiceMixin):
         # pass the callback and any user-provided parameters
         return redirect(self.get_authorize_url(redirect_uri=callback, **authorize_params))
 
-    def authorized_handler(self, method='GET'):
+    def authorized_handler(self, method='POST'):
         '''
         The handler should expect two arguments: `response` and `oflyUserid`.
 
