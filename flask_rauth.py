@@ -263,8 +263,8 @@ class RauthOAuth2(OAuth2Service, RauthServiceMixin):
         :class:`rauth.OAuth2Service`.
     '''
     def __init__(self, app=None, base_url=None, consumer_key=None, consumer_secret=None, **kwargs):
-        OAuth2Service.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
         RauthServiceMixin.__init__(self, app=app, base_url=base_url)
+        OAuth2Service.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
 
     def authorize(self, callback, **authorize_params):
         '''
@@ -360,8 +360,8 @@ class RauthOAuth1(OAuth1Service, RauthServiceMixin):
     See :class:`RauthOAuth2` for analogous details.
     '''
     def __init__(self, app=None, base_url=None, consumer_key=None, consumer_secret=None, **kwargs):
-        OAuth1Service.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
         RauthServiceMixin.__init__(self, app=app, base_url=base_url)
+        OAuth1Service.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
 
     def authorize(self, callback, **request_params):
         '''
@@ -446,8 +446,8 @@ class RauthOfly(OflyService, RauthServiceMixin):
     See :class:`RauthOAuth2` for analogous details.
     '''
     def __init__(self, app=None, base_url=None, consumer_key=None, consumer_secret=None, **kwargs):
-        OflyService.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
         RauthServiceMixin.__init__(self, app=app, base_url=base_url)
+        OflyService.__init__(self, consumer_key=consumer_key, consumer_secret=consumer_secret, **kwargs)
 
     def authorize(self, callback, **authorize_params):
         '''
