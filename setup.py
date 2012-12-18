@@ -15,7 +15,7 @@ from setuptools import setup
 
 setup(
     name='Flask-Rauth',
-    version='0.3.0',
+    version='0.3.1',
     url='https://github.com/joelverhagen/flask-rauth',
     license='BSD',
     author='Joel Verhagen',
